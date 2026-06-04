@@ -21,6 +21,10 @@
   <a href="https://github.com/ddsyasas/llm-wiki/blob/main/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
 </p>
 
+<p align="center">
+  <a href="https://www.producthunt.com/products/llm-wiki-cc?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-llm-wiki-cc" target="_blank" rel="noopener noreferrer"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1159603&amp;theme=light&amp;t=1780562921195" alt="LLM Wiki cc - A personal Wikipedia an LLM maintains for you | Product Hunt" width="250" height="54"></a>
+</p>
+
 This is a from-scratch implementation of [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), released April 2026.
 
 ---

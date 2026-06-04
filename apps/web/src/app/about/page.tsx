@@ -11,19 +11,30 @@ export default function AboutPage() {
       {/* Hero — Fraunces title sets the scholarly tone the rest of the page
           tries to live up to. */}
       <header className="mb-12">
-        <p className="text-caption uppercase tracking-wider text-muted-foreground">
-          About
-        </p>
+        <p className="text-caption uppercase tracking-wider text-muted-foreground">About</p>
         <h1 className="mt-2 font-display text-display font-semibold tracking-tight">
           A personal Wikipedia an LLM maintains for you.
         </h1>
         <p className="mt-5 max-w-2xl text-body font-serif text-muted-foreground">
-          You drop in sources — papers, articles, notes, URLs. An LLM agent
-          reads them, writes cross-linked pages, keeps an index, and revises
-          older pages when new sources change the picture. The result is a
-          knowledge base that <em>compounds</em>: each source makes every page
-          richer, not just one new page longer.
+          You drop in sources — papers, articles, notes, URLs. An LLM agent reads them, writes
+          cross-linked pages, keeps an index, and revises older pages when new sources change the
+          picture. The result is a knowledge base that <em>compounds</em>: each source makes every
+          page richer, not just one new page longer.
         </p>
+        <a
+          href="https://www.producthunt.com/products/llm-wiki-cc?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-llm-wiki-cc"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6 inline-block"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1159603&theme=light&t=1780562921195"
+            alt="LLM Wiki cc - A personal Wikipedia an LLM maintains for you | Product Hunt"
+            width={250}
+            height={54}
+          />
+        </a>
       </header>
 
       <Section eyebrow="The pattern" title="Built on Karpathy's idea">
@@ -37,42 +48,33 @@ export default function AboutPage() {
           >
             sketched a pattern
           </a>{" "}
-          for personal knowledge bases that treats the LLM as the
-          knowledge-engineer rather than the search-engine. Three layers (raw
-          sources, the LLM-maintained wiki, a schema the LLM reads on every
-          call) and three operations (ingest, query, lint) form a loop that
-          gets better as you feed it.
+          for personal knowledge bases that treats the LLM as the knowledge-engineer rather than the
+          search-engine. Three layers (raw sources, the LLM-maintained wiki, a schema the LLM reads
+          on every call) and three operations (ingest, query, lint) form a loop that gets better as
+          you feed it.
         </p>
         <blockquote className="my-4 border-l-2 border-primary/40 pl-4 font-serif italic text-foreground/80">
-          “Obsidian is the IDE. The LLM is the programmer. The wiki is the
-          codebase.”
+          “Obsidian is the IDE. The LLM is the programmer. The wiki is the codebase.”
         </blockquote>
         <p>
-          LLM Wiki is an open-source implementation of that pattern — local-
-          first, bring-your-own-key, plain markdown all the way down. You can
-          delete the app and your wiki keeps working.
+          LLM Wiki is an open-source implementation of that pattern — local- first,
+          bring-your-own-key, plain markdown all the way down. You can delete the app and your wiki
+          keeps working.
         </p>
       </Section>
 
-      <Section
-        eyebrow="What you get"
-        title="The wiki + a 3D view of its shape"
-      >
-        <p>
-          Your knowledge ends up in two complementary views:
-        </p>
+      <Section eyebrow="What you get" title="The wiki + a 3D view of its shape">
+        <p>Your knowledge ends up in two complementary views:</p>
         <ul className="space-y-1">
           <li>
-            <strong>The wiki itself</strong> — markdown pages grouped by type
-            (overviews, concepts, entities, comparisons, sources), with full
-            backlinks and source-lineage trails. Read it like a textbook,
-            search it, edit it.
+            <strong>The wiki itself</strong> — markdown pages grouped by type (overviews, concepts,
+            entities, comparisons, sources), with full backlinks and source-lineage trails. Read it
+            like a textbook, search it, edit it.
           </li>
           <li>
-            <strong>A 3D graph</strong> of every page and every cross-link —
-            same engine and look as Obsidian's graph view, but colored by{" "}
-            <em>page type</em> rather than free-form tag. Watch your knowledge
-            literally grow over time as you ingest more sources; orphans and
+            <strong>A 3D graph</strong> of every page and every cross-link — same engine and look as
+            Obsidian's graph view, but colored by <em>page type</em> rather than free-form tag.
+            Watch your knowledge literally grow over time as you ingest more sources; orphans and
             hubs become spatially obvious.
           </li>
         </ul>
@@ -81,38 +83,33 @@ export default function AboutPage() {
       <Section eyebrow="Why it exists" title="The gap nobody was filling">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <SubCard title="RAG chat (NotebookLM, ChatGPT files)">
-            Stateless. Rediscovers your corpus from scratch on every query.
-            Never accumulates anything you can read later.
+            Stateless. Rediscovers your corpus from scratch on every query. Never accumulates
+            anything you can read later.
           </SubCard>
           <SubCard title="Note-taking apps (Obsidian, Notion)">
-            All the maintenance burden on the human. You write, you cross-link,
-            you check for contradictions. Nothing scales.
+            All the maintenance burden on the human. You write, you cross-link, you check for
+            contradictions. Nothing scales.
           </SubCard>
         </div>
         <p className="mt-4">
-          LLM Wiki sits between them. The LLM does the maintenance; the wiki
-          accumulates value; you own the files. After three months of feeding
-          it, you have a navigable, cited, deliberately-organized body of
-          knowledge about whatever you care about — without ever having
-          written a page yourself.
+          LLM Wiki sits between them. The LLM does the maintenance; the wiki accumulates value; you
+          own the files. After three months of feeding it, you have a navigable, cited,
+          deliberately-organized body of knowledge about whatever you care about — without ever
+          having written a page yourself.
         </p>
       </Section>
 
-      <Section
-        eyebrow="One wiki, or several"
-        title="A wiki per topic — switch with one click"
-      >
+      <Section eyebrow="One wiki, or several" title="A wiki per topic — switch with one click">
         <p>
-          A wiki is meant to focus on one topic — the schema you set on first
-          run keeps the LLM on scope. For separate topics (say{" "}
-          <em>Physics</em>, <em>ML research</em>, and a{" "}
-          <em>Personal knowledge base</em>) you keep separate wiki folders and
-          switch between them in{" "}
+          A wiki is meant to focus on one topic — the schema you set on first run keeps the LLM on
+          scope. For separate topics (say <em>Physics</em>, <em>ML research</em>, and a{" "}
+          <em>Personal knowledge base</em>) you keep separate wiki folders and switch between them
+          in{" "}
           <Link href="/settings" className="text-primary underline underline-offset-2">
             Settings → Wikis
           </Link>
-          . Switching re-points the whole app on the next request — no restart,
-          no port juggling. Each wiki is its own folder you fully own.
+          . Switching re-points the whole app on the next request — no restart, no port juggling.
+          Each wiki is its own folder you fully own.
         </p>
       </Section>
 
@@ -156,10 +153,7 @@ export default function AboutPage() {
         </dl>
         <p className="mt-4 text-caption text-muted-foreground">
           For the deep dive, see the{" "}
-          <Link
-            href="/developers"
-            className="text-primary underline underline-offset-2"
-          >
+          <Link href="/developers" className="text-primary underline underline-offset-2">
             Developers page
           </Link>{" "}
           or the{" "}
@@ -207,8 +201,7 @@ export default function AboutPage() {
           .
         </p>
         <p className="mt-2 text-caption text-muted-foreground">
-          v{APP_VERSION} · Install with{" "}
-          <code>npm install -g </code>
+          v{APP_VERSION} · Install with <code>npm install -g </code>
           <a
             href="https://www.npmjs.com/package/@syasas/llm-wiki"
             target="_blank"
@@ -229,12 +222,11 @@ export default function AboutPage() {
           >
             llmwiki.cc
           </a>{" "}
-          — also has a hosted version (waitlist) for people who&apos;d rather
-          not install anything.
+          — also has a hosted version (waitlist) for people who&apos;d rather not install anything.
         </p>
         <p className="mt-2 text-caption text-muted-foreground">
-          LLM Wiki is not affiliated with Andrej Karpathy or Anthropic; the
-          pattern is his, the implementation is independent.
+          LLM Wiki is not affiliated with Andrej Karpathy or Anthropic; the pattern is his, the
+          implementation is independent.
         </p>
       </Section>
 
@@ -269,12 +261,8 @@ function Section({
 }) {
   return (
     <section className="mb-12">
-      <p className="text-caption uppercase tracking-wider text-muted-foreground">
-        {eyebrow}
-      </p>
-      <h2 className="mt-1 mb-4 font-display text-h2 font-semibold tracking-tight">
-        {title}
-      </h2>
+      <p className="text-caption uppercase tracking-wider text-muted-foreground">{eyebrow}</p>
+      <h2 className="mt-1 mb-4 font-display text-h2 font-semibold tracking-tight">{title}</h2>
       <div className="space-y-3 text-body font-serif leading-relaxed text-foreground/90">
         {children}
       </div>
@@ -282,13 +270,7 @@ function Section({
   );
 }
 
-function SubCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function SubCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md border border-border/70 bg-card p-4">
       <p className="font-display text-h3 font-medium tracking-tight">{title}</p>
@@ -351,8 +333,15 @@ const STACK: Array<{ label: string; value: string }> = [
   { label: "Framework", value: "Next.js 14 (App Router), TypeScript strict" },
   { label: "UI", value: "Tailwind + shadcn-style components, Fraunces / Crimson Pro / Inter" },
   { label: "Storage", value: "Plain markdown files + SQLite (better-sqlite3) for metadata" },
-  { label: "LLM", value: "OpenRouter (BYOK) — Claude / GPT / Gemini / Llama, you pick per operation" },
+  {
+    label: "LLM",
+    value: "OpenRouter (BYOK) — Claude / GPT / Gemini / Llama, you pick per operation",
+  },
   { label: "Search", value: "FTS5 on page bodies + frontmatter title/tags" },
-  { label: "Ingestion", value: "mammoth (DOCX), officeparser (XLSX/PPTX), @mozilla/readability (HTML/URL), vision models for PDF/image" },
+  {
+    label: "Ingestion",
+    value:
+      "mammoth (DOCX), officeparser (XLSX/PPTX), @mozilla/readability (HTML/URL), vision models for PDF/image",
+  },
   { label: "License", value: "MIT" },
 ];
