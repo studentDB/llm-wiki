@@ -6,7 +6,7 @@ import { insertUsage } from "./db-usage";
 import { buildQueryPrompt } from "./prompts/query";
 import type { ExistingPageSnippet } from "./prompts/ingest";
 import { QueryResponseSchema, type QueryResponse } from "./schema";
-import { readIndex, readPage, readSchema } from "./wiki";
+import { listPages, readIndex, readPage, readSchema } from "./wiki";
 
 const TOP_K_RELEVANT_PAGES = 10;
 
@@ -53,6 +53,8 @@ export async function queryWiki(opts: QueryWikiOptions): Promise<QueryResponse> 
     question: opts.question,
   });
 
+  logQueryPrompt(opts.model, prompt);
+
   const result = await callLLM({
     client: opts.client,
     model: opts.model,
@@ -76,6 +78,19 @@ export async function queryWiki(opts: QueryWikiOptions): Promise<QueryResponse> 
 
 // ---- internals ------------------------------------------------------------
 
+function logQueryPrompt(
+  model: string,
+  prompt: { system: string; user: string },
+): void {
+  if (process.env.LLM_WIKI_LOG_QUERY_PROMPT !== "1") return;
+
+  console.info("\n========== LLM WIKI QUERY PROMPT BEGIN ==========");
+  console.info(`[model]\n${model}`);
+  console.info(`[system]\n${prompt.system}`);
+  console.info(`[user]\n${prompt.user}`);
+  console.info("========== LLM WIKI QUERY PROMPT END ==========\n");
+}
+
 async function readSchemaOrDefault(wikiPath: string): Promise<string> {
   try {
     return await readSchema(wikiPath);
@@ -97,6 +112,27 @@ async function loadRelevantPages(
   db: Db,
   question: string,
 ): Promise<ExistingPageSnippet[]> {
+  const selected = new Map<string, { slug: string; title: string }>();
+
+  // Explicit wiki links are authoritative and should never depend on FTS.
+  for (const slug of extractWikiSlugs(question)) {
+    selected.set(slug, { slug, title: slug });
+  }
+
+  // Resolve literal page slugs and titles against pages on disk. This also
+  // works when the SQLite cache is stale or has not been rebuilt yet.
+  const pagesOnDisk = await listPages(wikiPath);
+  const normalizedQuestion = normalizeForMentionMatch(question);
+  for (const page of pagesOnDisk) {
+    const title = normalizeForMentionMatch(page.title);
+    if (
+      question.includes(page.slug) ||
+      (title.length > 0 && normalizedQuestion.includes(title))
+    ) {
+      selected.set(page.slug, { slug: page.slug, title: page.title });
+    }
+  }
+
   let hits: Array<{ slug: string; title: string }> = [];
   try {
     hits = searchPages(db, question, TOP_K_RELEVANT_PAGES);
@@ -104,8 +140,13 @@ async function loadRelevantPages(
     hits = [];
   }
 
-  const snippets: ExistingPageSnippet[] = [];
   for (const hit of hits) {
+    if (selected.size >= TOP_K_RELEVANT_PAGES) break;
+    selected.set(hit.slug, hit);
+  }
+
+  const snippets: ExistingPageSnippet[] = [];
+  for (const hit of selected.values()) {
     try {
       const page = await readPage(wikiPath, hit.slug);
       snippets.push({
@@ -119,4 +160,14 @@ async function loadRelevantPages(
     }
   }
   return snippets;
+}
+
+function extractWikiSlugs(question: string): string[] {
+  return Array.from(question.matchAll(/\[\[([a-z0-9-]+)(?:\|[^\]]+)?\]\]/gi), (match) =>
+    match[1]!.toLowerCase(),
+  );
+}
+
+function normalizeForMentionMatch(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }

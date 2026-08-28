@@ -121,16 +121,17 @@ export function unindexPageFromSearch(db: Db, slug: string): void {
 
 export type SearchHit = { slug: string; title: string; snippet: string };
 
-// FTS5 treats hyphens, colons, parens, etc. as operators. For a personal
-// search box we want plain word/phrase matching, so split on whitespace and
-// quote each token. Boolean operators aren't exposed in V1.
+// FTS5 treats hyphens, colons, parens, etc. as operators. For a natural-language
+// query we want broad recall: quote each whitespace-delimited token and join
+// them with OR. Requiring every word in a full user question to match caused
+// relevant-page lookup to return zero results for ordinary questions.
 function sanitizeFtsQuery(q: string): string {
   return q
     .trim()
     .split(/\s+/)
     .filter(Boolean)
     .map((tok) => `"${tok.replace(/"/g, '""')}"`)
-    .join(" ");
+    .join(" OR ");
 }
 
 export function searchPages(db: Db, query: string, limit = 20): SearchHit[] {

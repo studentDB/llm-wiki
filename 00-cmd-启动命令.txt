@@ -3,6 +3,7 @@ cd E:\CodeRepository\CodeTest\llm-wiki
 :: 设置 wiki 数据路径
 set "LLM_WIKI_PATH=E:\WorkProgram\04AI文档\01-Demo\03-AIDocumentV3-ds\llm-wiki-poc"
 
+
 :: 私有化 DeepSeek（已有）
 set "CUSTOM_OPENAI_BASE_URL=http://172.16.1.2:30001/v1/chat/completions"
 set "CUSTOM_OPENAI_API_KEY=sk-95156949095ee0a6c14e2eee931e4d856"
@@ -12,6 +13,9 @@ set "CUSTOM_OPENAI_API_KEY=sk-95156949095ee0a6c14e2eee931e4d856"
 :: 阿里云 DashScope（新增）
 set "ALIYUN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1"
 set "ALIYUN_API_KEY=sk-59cf7ba718bf4920a5dab90e7213bd69"
+
+::在控制台输出Query的提示词日志
+set LLM_WIKI_LOG_QUERY_PROMPT=1
 
 :: 启动
 pnpm dev

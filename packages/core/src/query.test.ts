@@ -74,6 +74,56 @@ async function seed(slug: string, title: string, body: string) {
 }
 
 describe("queryWiki", () => {
+  it("loads a page named explicitly by wiki slug even when the FTS question does not match", async () => {
+    await seed("issue-hart-poc-gaps", "HART 章节试点证据缺口", "## 阻塞项\n\n1. 缺少验证结果。\n");
+    const client = stubClient([
+      {
+        answer: "[[issue-hart-poc-gaps]]",
+        pagesUsed: ["issue-hart-poc-gaps"],
+        suggestedNewPage: null,
+        confidence: "high",
+        caveats: [],
+      },
+    ]);
+
+    await queryWiki({
+      question: "请逐字读取 [[issue-hart-poc-gaps]]，不要改写。",
+      wikiPath,
+      db,
+      client,
+      model: "stub/sonnet",
+    });
+
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const request = create.mock.calls[0]?.[0] as { messages: Array<{ role: string; content: string }> };
+    expect(request.messages[0]?.content).toContain("缺少验证结果");
+  });
+
+  it("loads a page when its human-readable title is mentioned", async () => {
+    await seed("issue-hart-poc-gaps", "HART 章节试点证据缺口", "## 允许动作\n\n1. 补充证据。\n");
+    const client = stubClient([
+      {
+        answer: "[[issue-hart-poc-gaps]]",
+        pagesUsed: ["issue-hart-poc-gaps"],
+        suggestedNewPage: null,
+        confidence: "high",
+        caveats: [],
+      },
+    ]);
+
+    await queryWiki({
+      question: "请仅依据“HART章节试点证据缺口”页面原文回答。",
+      wikiPath,
+      db,
+      client,
+      model: "stub/sonnet",
+    });
+
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const request = create.mock.calls[0]?.[0] as { messages: Array<{ role: string; content: string }> };
+    expect(request.messages[0]?.content).toContain("补充证据");
+  });
+
   it("returns the LLM's parsed answer and records usage", async () => {
     await seed("shors-algorithm", "Shor's Algorithm", "Quantum factoring in polynomial time.");
 
