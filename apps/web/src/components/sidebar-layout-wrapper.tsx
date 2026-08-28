@@ -60,11 +60,11 @@ export function SidebarLayoutWrapper({ sidebar, children, triggerLabel }: Props)
           content, leaving a visible white gap below. */}
       <div
         className={cn(
-          "z-40 flex transition-transform duration-200 ease-out",
-          // Desktop: in-flow, no transform applied.
-          "sm:relative sm:translate-x-0",
+          "flex transition-transform duration-200 ease-out",
+          // Desktop: in-flow, no z-index needed.
+          "sm:relative sm:z-auto sm:translate-x-0",
           // Mobile: anchored to the wrapper's left edge, full height.
-          "absolute inset-y-0 left-0",
+          "absolute inset-y-0 left-0 z-40",
           open ? "translate-x-0" : "-translate-x-full sm:translate-x-0",
         )}
       >

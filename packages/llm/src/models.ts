@@ -117,6 +117,38 @@ export const SUGGESTED_MODELS: ReadonlyArray<ModelChoice> = [
     vision: true,
     free: true,
   },
+  // Custom private deployment
+  {
+    id: "custom-model",
+    label: "Custom Private Model",
+    notes: "Your own OpenAI-compatible endpoint. Set CUSTOM_OPENAI_BASE_URL env var.",
+    vision: false,
+  },
+  // Alibaba Cloud DashScope
+  {
+    id: "qwen-turbo",
+    label: "Qwen Turbo",
+    notes: "Aliyun DashScope · fast & cheap",
+    vision: false,
+  },
+  {
+    id: "qwen-plus",
+    label: "Qwen Plus",
+    notes: "Aliyun DashScope · balanced quality",
+    vision: false,
+  },
+  {
+    id: "qwen-max",
+    label: "Qwen Max",
+    notes: "Aliyun DashScope · best quality",
+    vision: false,
+  },
+  {
+    id: "qwen-vl-max",
+    label: "Qwen VL Max",
+    notes: "Aliyun DashScope · vision-capable",
+    vision: true,
+  },
 ];
 
 export type ModelPricing = {
@@ -165,6 +197,13 @@ const PRICING: Record<string, ModelPricing> = {
   "nvidia/nemotron-3-super-120b-a12b:free": { inputPerMillion: 0, outputPerMillion: 0 },
   "deepseek/deepseek-v4-flash:free": { inputPerMillion: 0, outputPerMillion: 0 },
   "google/gemma-4-31b-it:free": { inputPerMillion: 0, outputPerMillion: 0 },
+  // Custom private deployment — zero cost tracking
+  "custom-model": { inputPerMillion: 0, outputPerMillion: 0 },
+  // Alibaba Cloud DashScope — approximate pricing (USD per 1M tokens)
+  "qwen-turbo": { inputPerMillion: 0.5, outputPerMillion: 1.5 },
+  "qwen-plus": { inputPerMillion: 1.0, outputPerMillion: 3.0 },
+  "qwen-max": { inputPerMillion: 3.0, outputPerMillion: 9.0 },
+  "qwen-vl-max": { inputPerMillion: 3.0, outputPerMillion: 9.0 },
 };
 
 /**

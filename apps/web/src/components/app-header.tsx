@@ -31,7 +31,7 @@ export function AppHeader() {
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-6 border-b border-border/70 bg-background/85 px-5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-6 border-b border-border/70 bg-background/85 px-5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Wordmark — Fraunces gives the scholarly voice docs/08 asked for. */}
       <Link
         href="/"

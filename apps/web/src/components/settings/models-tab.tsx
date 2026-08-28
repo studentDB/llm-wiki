@@ -11,11 +11,13 @@ const SLOTS = ["ingest", "query", "chat", "lint", "vision"] as const;
 type Slot = (typeof SLOTS)[number];
 
 // ─── Provider types ────────────────────────────────────────────────────────────
-type Provider = "openrouter" | "ollama";
+type Provider = "openrouter" | "ollama" | "custom" | "aliyun";
 
 const PROVIDERS: { value: Provider; label: string }[] = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "ollama", label: "Ollama (Local)" },
+  { value: "custom", label: "Custom Private" },
+  { value: "aliyun", label: "阿里云 DashScope" },
 ];
 
 // ─── OpenRouter model catalogue ────────────────────────────────────────────────
@@ -130,6 +132,16 @@ const OLLAMA_SUGGESTED: ReadonlyArray<OllamaChoice> = [
   },
 ];
 
+// ─── Aliyun DashScope model suggestions ──────────────────────────────────────
+type AliyunChoice = { id: string; label: string; notes: string; vision: boolean };
+
+const ALIYUN_SUGGESTED: ReadonlyArray<AliyunChoice> = [
+  { id: "qwen-turbo", label: "Qwen Turbo", notes: "Fast & cheap", vision: false },
+  { id: "qwen-plus", label: "Qwen Plus", notes: "Balanced quality", vision: false },
+  { id: "qwen-max", label: "Qwen Max", notes: "Best quality", vision: false },
+  { id: "qwen-vl-max", label: "Qwen VL Max", notes: "Vision-capable", vision: true },
+];
+
 const CUSTOM_SENTINEL = "__custom__";
 
 const SLOT_HINT: Record<Slot, string> = {
@@ -180,11 +192,17 @@ export function ModelsTab() {
 
         const knownOR = new Set(SUGGESTED.map((s) => s.id));
         const knownOL = new Set(OLLAMA_SUGGESTED.map((s) => s.id));
+        const knownAli = new Set(ALIYUN_SUGGESTED.map((s) => s.id));
         const derivedCustom = {} as Record<Slot, boolean>;
         for (const slot of SLOTS) {
           const { provider, model } = dm[slot];
-          derivedCustom[slot] =
-            provider === "ollama" ? !knownOL.has(model) : !knownOR.has(model);
+          if (provider === "ollama") {
+            derivedCustom[slot] = !knownOL.has(model);
+          } else if (provider === "aliyun") {
+            derivedCustom[slot] = !knownAli.has(model);
+          } else {
+            derivedCustom[slot] = !knownOR.has(model);
+          }
         }
         setCustomMode(derivedCustom);
       } catch (err) {
@@ -200,10 +218,14 @@ export function ModelsTab() {
   function onProviderChange(slot: Slot, value: Provider) {
     setCustomMode((m) => ({ ...m, [slot]: false }));
     // Reset model to a sensible default for the new provider
-    const defaultModel =
-      value === "ollama"
-        ? (OLLAMA_SUGGESTED.find((m) => (slot === "vision" ? m.vision : true))?.id ?? "llama3")
-        : (SUGGESTED.find((s) => (slot === "vision" ? s.vision : true))?.id ?? SUGGESTED[0]?.id ?? "openai/gpt-4o-mini");
+    let defaultModel: string;
+    if (value === "ollama") {
+      defaultModel = OLLAMA_SUGGESTED.find((m) => (slot === "vision" ? m.vision : true))?.id ?? "llama3";
+    } else if (value === "aliyun") {
+      defaultModel = ALIYUN_SUGGESTED.find((m) => (slot === "vision" ? m.vision : true))?.id ?? "qwen-plus";
+    } else {
+      defaultModel = SUGGESTED.find((s) => (slot === "vision" ? s.vision : true))?.id ?? SUGGESTED[0]?.id ?? "openai/gpt-4o-mini";
+    }
     updateSlot(slot, { provider: value, model: defaultModel });
   }
 
@@ -251,6 +273,19 @@ export function ModelsTab() {
   // the requirement obvious before the user finds out the painful way.
   const ollamaSlots = useMemo(
     () => (original ? SLOTS.filter((s) => original[s].provider === "ollama") : []),
+    [original],
+  );
+
+  // Custom provider banner — visible when one or more slots use a custom
+  // endpoint. Reminds the user that the server needs CUSTOM_OPENAI_BASE_URL.
+  const customSlots = useMemo(
+    () => (original ? SLOTS.filter((s) => original[s].provider === "custom") : []),
+    [original],
+  );
+
+  // Aliyun provider banner
+  const aliyunSlots = useMemo(
+    () => (original ? SLOTS.filter((s) => original[s].provider === "aliyun") : []),
     [original],
   );
 
@@ -367,6 +402,40 @@ export function ModelsTab() {
         </div>
       ) : null}
 
+      {/* Custom provider banner — visible when one or more slots use a
+          private OpenAI-compatible endpoint. Reminds about env vars. */}
+      {customSlots.length > 0 ? (
+        <div className="rounded-md border border-blue-500/40 bg-blue-500/[0.06] px-4 py-3 text-sm">
+          <p className="font-medium text-blue-900 dark:text-blue-200">
+            🔗 Custom endpoint selected for {customSlots.length === 1 ? "1 slot" : `${customSlots.length} slots`}
+            {customSlots.length > 0 ? ` (${customSlots.join(", ")})` : ""}
+          </p>
+          <p className="mt-1 text-blue-900/80 dark:text-blue-200/80">
+            Make sure the server was started with{" "}
+            <code className="font-mono">CUSTOM_OPENAI_BASE_URL</code> and{" "}
+            <code className="font-mono">CUSTOM_OPENAI_API_KEY</code> set in the
+            environment. Operations will fail with a connection error otherwise.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Aliyun DashScope banner */}
+      {aliyunSlots.length > 0 ? (
+        <div className="rounded-md border border-orange-500/40 bg-orange-500/[0.06] px-4 py-3 text-sm">
+          <p className="font-medium text-orange-900 dark:text-orange-200">
+            ☁ 阿里云 DashScope selected for {aliyunSlots.length === 1 ? "1 slot" : `${aliyunSlots.length} slots`}
+            {aliyunSlots.length > 0 ? ` (${aliyunSlots.join(", ")})` : ""}
+          </p>
+          <p className="mt-1 text-orange-900/80 dark:text-orange-200/80">
+            Make sure the server was started with{" "}
+            <code className="font-mono">ALIYUN_API_KEY</code> set in the
+            environment. <code className="font-mono">ALIYUN_BASE_URL</code> is
+            optional (defaults to{" "}
+            <code className="font-mono">https://dashscope.aliyuncs.com/compatible-mode/v1</code>).
+          </p>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
       ) : null}
@@ -381,13 +450,18 @@ export function ModelsTab() {
             const isOllama = provider === "ollama";
 
             // Pick which suggestion list to show
+            const isAliyun = provider === "aliyun";
             const visibleOptions = isOllama
               ? visionOnly
                 ? OLLAMA_SUGGESTED.filter((s) => s.vision)
                 : OLLAMA_SUGGESTED
-              : visionOnly
-                ? SUGGESTED.filter((s) => s.vision)
-                : SUGGESTED;
+              : isAliyun
+                ? visionOnly
+                  ? ALIYUN_SUGGESTED.filter((s) => s.vision)
+                  : ALIYUN_SUGGESTED
+                : visionOnly
+                  ? SUGGESTED.filter((s) => s.vision)
+                  : SUGGESTED;
 
             const knownIds = new Set(visibleOptions.map((o) => o.id));
             const isCustom = customMode[slot] || !knownIds.has(models[slot].model);
@@ -436,8 +510,14 @@ export function ModelsTab() {
                     <Input
                       value={models[slot].model}
                       onChange={(e) => updateSlot(slot, { model: e.target.value })}
-                      placeholder={isOllama ? "e.g. llama3:latest" : "provider/model-id"}
-                      className="font-mono text-[13px] sm:flex-1"
+                      placeholder={
+                        isOllama
+                          ? "e.g. llama3:latest"
+                          : isAliyun
+                            ? "e.g. qwen-plus"
+                            : "provider/model-id"
+                      }
+                      className="font-mono text-[13px] min-w-[16rem] flex-1"
                     />
                   ) : (
                     <span className="font-mono text-xs text-muted-foreground">{models[slot].model}</span>

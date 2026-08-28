@@ -15,13 +15,38 @@ export type LlmClient = OpenAI;
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-export function createClient(apiKey: string, provider?: "openrouter" | "ollama"): LlmClient {
+export function createClient(apiKey: string, provider?: "openrouter" | "ollama" | "custom" | "aliyun"): LlmClient {
   if (provider === "ollama") {
     const rawBaseUrl = process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
     const baseURL = rawBaseUrl.endsWith("/v1") ? rawBaseUrl : `${rawBaseUrl.replace(/\/$/, "")}/v1`;
     return new OpenAI({
       apiKey: "ollama",
       baseURL,
+    });
+  }
+
+  if (provider === "custom") {
+    let baseURL = process.env["CUSTOM_OPENAI_BASE_URL"];
+    if (!baseURL) {
+      throw new Error("CUSTOM_OPENAI_BASE_URL environment variable is required for custom provider");
+    }
+    // 兼容完整端点 URL（如 http://host:port/v1/chat/completions）
+    if (baseURL.includes("/v1/chat/completions")) {
+      baseURL = baseURL.replace("/chat/completions", "");
+    }
+    const finalBaseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL.replace(/\/$/, "")}/v1`;
+    return new OpenAI({
+      apiKey: apiKey || process.env["CUSTOM_OPENAI_API_KEY"] || "custom",
+      baseURL: finalBaseURL,
+    });
+  }
+
+  if (provider === "aliyun") {
+    const baseURL = process.env["ALIYUN_BASE_URL"] || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    const finalBaseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL.replace(/\/$/, "")}/v1`;
+    return new OpenAI({
+      apiKey: apiKey || process.env["ALIYUN_API_KEY"] || "",
+      baseURL: finalBaseURL,
     });
   }
 

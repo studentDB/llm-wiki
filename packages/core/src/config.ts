@@ -177,9 +177,9 @@ export async function removeRecentWiki(wikiPath: string): Promise<GlobalConfig> 
 // Lives inside the wiki folder. Safe to commit alongside the wiki.
 
 /** Which inference provider backs a model slot. */
-export type ModelProvider = "openrouter" | "ollama";
+export type ModelProvider = "openrouter" | "ollama" | "custom" | "aliyun";
 
-const VALID_PROVIDERS: ModelProvider[] = ["openrouter", "ollama"];
+const VALID_PROVIDERS: ModelProvider[] = ["openrouter", "ollama", "custom", "aliyun"];
 
 /**
  * Configuration for a single operation slot.
