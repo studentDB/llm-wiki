@@ -68,7 +68,11 @@ export async function queryWiki(opts: QueryWikiOptions): Promise<QueryResponse> 
     model: result.model,
     input_tokens: result.usage.inputTokens,
     output_tokens: result.usage.outputTokens,
-    cost_cents: estimateCostCents(result.model, result.usage.inputTokens, result.usage.outputTokens),
+    cost_cents: estimateCostCents(
+      result.model,
+      result.usage.inputTokens,
+      result.usage.outputTokens,
+    ),
     created_at: new Date().toISOString(),
   });
 
@@ -78,10 +82,7 @@ export async function queryWiki(opts: QueryWikiOptions): Promise<QueryResponse> 
 
 // ---- internals ------------------------------------------------------------
 
-function logQueryPrompt(
-  model: string,
-  prompt: { system: string; user: string },
-): void {
+function logQueryPrompt(model: string, prompt: { system: string; user: string }): void {
   if (process.env.LLM_WIKI_LOG_QUERY_PROMPT !== "1") return;
 
   console.info("\n========== LLM WIKI QUERY PROMPT BEGIN ==========");
@@ -113,6 +114,7 @@ async function loadRelevantPages(
   question: string,
 ): Promise<ExistingPageSnippet[]> {
   const selected = new Map<string, { slug: string; title: string }>();
+  let mode: "explicit-links" | "exact-mentions" | "fts" = "explicit-links";
 
   // Explicit wiki links are authoritative and should never depend on FTS.
   for (const slug of extractWikiSlugs(question)) {
@@ -121,31 +123,46 @@ async function loadRelevantPages(
 
   // Resolve literal page slugs and titles against pages on disk. This also
   // works when the SQLite cache is stale or has not been rebuilt yet.
-  const pagesOnDisk = await listPages(wikiPath);
-  const normalizedQuestion = normalizeForMentionMatch(question);
-  for (const page of pagesOnDisk) {
-    const title = normalizeForMentionMatch(page.title);
-    if (
-      question.includes(page.slug) ||
-      (title.length > 0 && normalizedQuestion.includes(title))
-    ) {
-      selected.set(page.slug, { slug: page.slug, title: page.title });
+  if (selected.size === 0) {
+    mode = "exact-mentions";
+    const pagesOnDisk = await listPages(wikiPath);
+    const mentionedSlugs = new Set(question.toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)*/g) ?? []);
+    const normalizedQuestion = normalizeForMentionMatch(question);
+    for (const page of pagesOnDisk) {
+      const title = normalizeForMentionMatch(page.title);
+      if (
+        mentionedSlugs.has(page.slug) ||
+        (title.length > 0 && normalizedQuestion.includes(title))
+      ) {
+        selected.set(page.slug, { slug: page.slug, title: page.title });
+      }
     }
   }
 
-  let hits: Array<{ slug: string; title: string }> = [];
-  try {
-    hits = searchPages(db, question, TOP_K_RELEVANT_PAGES);
-  } catch {
-    hits = [];
+  // Never widen an explicit scope, even if the selected file cannot be read.
+  // Reject oversized exact selections instead of silently dropping pages.
+  if (selected.size > TOP_K_RELEVANT_PAGES) {
+    throw new Error(
+      `Query selected ${selected.size} explicit pages; please request at most ${TOP_K_RELEVANT_PAGES} pages at a time.`,
+    );
   }
+  if (selected.size === 0) {
+    mode = "fts";
+    let hits: Array<{ slug: string; title: string }> = [];
+    try {
+      hits = searchPages(db, question, TOP_K_RELEVANT_PAGES);
+    } catch {
+      hits = [];
+    }
 
-  for (const hit of hits) {
-    if (selected.size >= TOP_K_RELEVANT_PAGES) break;
-    selected.set(hit.slug, hit);
+    for (const hit of hits) {
+      if (selected.size >= TOP_K_RELEVANT_PAGES) break;
+      selected.set(hit.slug, hit);
+    }
   }
 
   const snippets: ExistingPageSnippet[] = [];
+  const unreadableSlugs: string[] = [];
   for (const hit of selected.values()) {
     try {
       const page = await readPage(wikiPath, hit.slug);
@@ -156,8 +173,20 @@ async function loadRelevantPages(
         excerpt: page.content,
       });
     } catch {
-      // FTS5 row but missing on disk — drift; skip.
+      // Missing or malformed is not permission to substitute another page.
+      unreadableSlugs.push(hit.slug);
     }
+  }
+  if (process.env.LLM_WIKI_LOG_QUERY_PROMPT === "1") {
+    console.info(
+      "[query retrieval]",
+      JSON.stringify({
+        mode,
+        selectedSlugs: [...selected.keys()],
+        retrievedSlugs: snippets.map((page) => page.slug),
+        unreadableSlugs,
+      }),
+    );
   }
   return snippets;
 }

@@ -25,7 +25,11 @@ function stubClient(responses: QueryResponse[]): LlmClient {
             id: "stub",
             model: "stub/sonnet",
             choices: [
-              { index: 0, message: { role: "assistant", content: JSON.stringify(next) }, finish_reason: "stop" },
+              {
+                index: 0,
+                message: { role: "assistant", content: JSON.stringify(next) },
+                finish_reason: "stop",
+              },
             ],
             usage: { prompt_tokens: 2500, completion_tokens: 320 },
           };
@@ -74,6 +78,53 @@ async function seed(slug: string, title: string, body: string) {
 }
 
 describe("queryWiki", () => {
+  it.each([
+    [
+      "links override titles and FTS",
+      "[[issue-hart-poc-gaps]] Operation HART",
+      ["issue-hart-poc-gaps"],
+    ],
+    [
+      "Chinese title excludes FTS extras",
+      "请仅依据“HART章节试点证据缺口” HART 回答",
+      ["issue-hart-poc-gaps"],
+    ],
+    ["bare slug excludes FTS extras", "issue-hart-poc-gaps HART", ["issue-hart-poc-gaps"]],
+    [
+      "multiple links are deduplicated",
+      "[[issue-hart-poc-gaps]] [[operation-hart]] [[issue-hart-poc-gaps|重复]] HART",
+      ["issue-hart-poc-gaps", "operation-hart"],
+    ],
+    ["missing links do not fall back", "[[missing-page]] HART", []],
+    ["ordinary questions use FTS", "HART", ["issue-hart-poc-gaps", "operation-hart"]],
+  ])("%s", async (_name, question, expected) => {
+    await seed("issue-hart-poc-gaps", "HART 章节试点证据缺口", "HART ISSUE_BODY");
+    await seed("operation-hart", "Operation", "HART OPERATION_BODY");
+    const client = stubClient([
+      {
+        answer: "test",
+        pagesUsed: [],
+        suggestedNewPage: null,
+        confidence: "low",
+        caveats: [],
+      },
+    ]);
+    await queryWiki({ question: question as string, wikiPath, db, client, model: "stub/sonnet" });
+    const request = vi.mocked(client.chat.completions.create).mock.calls[0]![0];
+    const system = String(request.messages[0]!.content);
+    const loaded = Array.from(system.matchAll(/\(slug: ([a-z0-9-]+), type:/g), (m) => m[1]);
+    expect(loaded.sort()).toEqual([...(expected as string[])].sort());
+  });
+
+  it("rejects oversized explicit selections before calling the model", async () => {
+    const client = stubClient([]);
+    const question = Array.from({ length: 11 }, (_, i) => `[[page-${i}]]`).join(" ");
+    await expect(
+      queryWiki({ question, wikiPath, db, client, model: "stub/sonnet" }),
+    ).rejects.toThrow("at most 10 pages");
+    expect(client.chat.completions.create).not.toHaveBeenCalled();
+  });
+
   it("loads a page named explicitly by wiki slug even when the FTS question does not match", async () => {
     await seed("issue-hart-poc-gaps", "HART 章节试点证据缺口", "## 阻塞项\n\n1. 缺少验证结果。\n");
     const client = stubClient([
@@ -95,7 +146,9 @@ describe("queryWiki", () => {
     });
 
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    const request = create.mock.calls[0]?.[0] as { messages: Array<{ role: string; content: string }> };
+    const request = create.mock.calls[0]?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
     expect(request.messages[0]?.content).toContain("缺少验证结果");
   });
 
@@ -120,7 +173,9 @@ describe("queryWiki", () => {
     });
 
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    const request = create.mock.calls[0]?.[0] as { messages: Array<{ role: string; content: string }> };
+    const request = create.mock.calls[0]?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
     expect(request.messages[0]?.content).toContain("补充证据");
   });
 
