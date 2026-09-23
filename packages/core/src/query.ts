@@ -114,12 +114,14 @@ async function loadRelevantPages(
   question: string,
 ): Promise<ExistingPageSnippet[]> {
   const selected = new Map<string, { slug: string; title: string }>();
-  let mode: "explicit-links" | "exact-mentions" | "fts" = "explicit-links";
+  let mode: "explicit-links" | "exact-mentions" | "fts" | "fts+mentions" =
+    "explicit-links";
 
   // Explicit wiki links are authoritative and should never depend on FTS.
   for (const slug of extractWikiSlugs(question)) {
     selected.set(slug, { slug, title: slug });
   }
+  const explicitLinkCount = selected.size;
 
   // Resolve literal page slugs and titles against pages on disk. This also
   // works when the SQLite cache is stale or has not been rebuilt yet.
@@ -146,8 +148,12 @@ async function loadRelevantPages(
       `Query selected ${selected.size} explicit pages; please request at most ${TOP_K_RELEVANT_PAGES} pages at a time.`,
     );
   }
-  if (selected.size === 0) {
-    mode = "fts";
+  // A bare product name that collides with a page slug ("ConST810" -> const810)
+  // shows up in nearly every question. Treating that as an explicit scope
+  // starved answers of every sibling page, so FTS still runs and tops the
+  // selection up. Only real [[wiki links]] are allowed to narrow the scope.
+  if (explicitLinkCount === 0 && selected.size < TOP_K_RELEVANT_PAGES) {
+    mode = selected.size === 0 ? "fts" : "fts+mentions";
     let hits: Array<{ slug: string; title: string }> = [];
     try {
       hits = searchPages(db, question, TOP_K_RELEVANT_PAGES);

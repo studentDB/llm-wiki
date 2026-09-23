@@ -32,8 +32,11 @@ const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 // wikis adds the new path to the set on first open.
 const backfilledWikis = new Set<string>();
 
+import { headers } from "next/headers";
+
 /**
  * Resolution order (docs/13-multi-wiki.md):
+ * 0. `X-Wiki-Product` HTTP header — for stateless multi-tenant API routing.
  * 1. `LLM_WIKI_PATH` env var — explicit override, wins. Useful for CI,
  *    scripting, and the CLI's `start <folder>` form.
  * 2. `activeWiki` in `~/.llm-wiki/config.json` — set by Settings → Wikis
@@ -47,6 +50,19 @@ const backfilledWikis = new Set<string>();
  * OS-cached JSON file. Failures fall through to the default silently.
  */
 export function resolveWikiPath(): string {
+  try {
+    const reqHeaders = headers();
+    const product = reqHeaders.get("x-wiki-product");
+    if (product) {
+      // Create a centralized 'wikis' directory in the project root or specified base path
+      const baseDir = process.env["LLM_WIKI_BASE_DIR"] || join(process.cwd(), "wikis");
+      return join(baseDir, product);
+    }
+  } catch (e) {
+    // headers() throws if called outside a Next.js request context (e.g. in CLI or non-request async functions)
+    // We safely ignore this and fall through to the other resolution methods.
+  }
+
   const fromEnv = process.env["LLM_WIKI_PATH"];
   if (fromEnv) return fromEnv;
   try {

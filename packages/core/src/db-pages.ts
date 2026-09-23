@@ -121,17 +121,41 @@ export function unindexPageFromSearch(db: Db, slug: string): void {
 
 export type SearchHit = { slug: string; title: string; snippet: string };
 
-// FTS5 treats hyphens, colons, parens, etc. as operators. For a natural-language
-// query we want broad recall: quote each whitespace-delimited token and join
-// them with OR. Requiring every word in a full user question to match caused
-// relevant-page lookup to return zero results for ordinary questions.
+// FTS5 treats hyphens, colons, parens, etc. as operators, so every emitted term
+// is quoted. Whitespace-delimited tokens are OR'd for broad recall.
+//
+// CJK needs extra handling: Chinese questions contain no spaces, so a whole
+// sentence collapses into a single phrase. Under the `trigram` tokenizer a phrase
+// must match contiguously, which means "差压版的压力发生范围和分辨力分别是多少？"
+// matched nothing even though the answer page contained every keyword. CJK runs
+// are therefore expanded into sliding 3-character phrases (the trigram width),
+// which makes each keyword independently matchable. BM25 still ranks pages that
+// contain several of the trigrams highest.
+const CJK_RUN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff]{3,}/g;
+const MAX_FTS_TERMS = 64;
+
+function quoteTerm(term: string): string {
+  return `"${term.replace(/"/g, '""')}"`;
+}
+
 function sanitizeFtsQuery(q: string): string {
-  return q
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((tok) => `"${tok.replace(/"/g, '""')}"`)
-    .join(" OR ");
+  const tokens = q.trim().split(/\s+/).filter(Boolean);
+  const terms: string[] = [];
+
+  for (const token of tokens) {
+    const runs = token.match(CJK_RUN);
+    if (!runs) {
+      terms.push(quoteTerm(token));
+      continue;
+    }
+    for (const run of runs) {
+      for (let i = 0; i + 3 <= run.length; i += 1) {
+        terms.push(quoteTerm(run.slice(i, i + 3)));
+      }
+    }
+  }
+
+  return terms.slice(0, MAX_FTS_TERMS).join(" OR ");
 }
 
 export function searchPages(db: Db, query: string, limit = 20): SearchHit[] {

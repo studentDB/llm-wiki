@@ -36,7 +36,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
   slug UNINDEXED,
   title,
   content,
-  tags
+  tags,
+  tokenize='trigram'
 );
 
 CREATE TABLE IF NOT EXISTS page_sources (
