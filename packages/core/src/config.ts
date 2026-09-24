@@ -222,14 +222,11 @@ export const DEFAULT_WIKI_SETTINGS: WikiSettings = {
   version: 1,
   topic: "",
   defaultModels: {
-    // Slugs follow OpenRouter conventions and the Claude 4.x family (current
-    // as of 2026-05). If you bump these, also update
-    // packages/llm/src/models.ts DEFAULT_MODELS to match.
-    ingest: slotConfig("anthropic/claude-haiku-4.5"),
-    query: slotConfig("anthropic/claude-sonnet-4.6"),
-    chat: slotConfig("anthropic/claude-sonnet-4.6"),
-    lint: slotConfig("anthropic/claude-sonnet-4.6"),
-    vision: slotConfig("anthropic/claude-sonnet-4.6"),
+    ingest: slotConfig("DeepSeek-V4-Flash-0731", "custom"),
+    query: slotConfig("qwen-plus", "aliyun"),
+    chat: slotConfig("qwen-plus", "aliyun"),
+    lint: slotConfig("qwen-plus", "aliyun"),
+    vision: slotConfig("qwen3-vl-plus", "aliyun"),
   },
   autoLintAfterIngest: false,
   showCostEstimates: true,
