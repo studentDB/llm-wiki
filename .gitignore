@@ -42,3 +42,6 @@ prdocs/
 # Maintainer-only release playbook — kept on disk for the maintainer,
 # not shipped to the public repo. Removed from tracking 2026-05-27.
 docs/15-publishing.md
+
+# Ignore dynamically generated product wikis
+apps/web/wikis/
