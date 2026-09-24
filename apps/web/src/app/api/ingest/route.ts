@@ -194,10 +194,14 @@ async function handleFileUpload(req: Request, apiKey: string): Promise<Response>
   const buffer = Buffer.from(await file.arrayBuffer());
   const format = detectFormat(filename, buffer);
 
+  console.log(`\n[Ingest Route] 开始处理上传文件: ${filename} (格式: ${format})`);
   let extracted: ExtractedSource;
   try {
+    console.log(`[Ingest Route] 正在提取 ${filename} 的文本内容...`);
     extracted = await runExtractor(format, buffer, filename);
+    console.log(`[Ingest Route] ${filename} 文本提取完成，准备存入数据库并调用模型...`);
   } catch (err) {
+    console.error(`[Ingest Route] 提取失败: ${err}`);
     return NextResponse.json(
       { error: `extraction failed for ${format}: ${(err as Error).message}` },
       { status: 400 },
@@ -261,6 +265,9 @@ async function handleFileUpload(req: Request, apiKey: string): Promise<Response>
       });
     }
     if (!dryRun) markSourceIngested(ctx.db, saved.sourceId);
+    
+    console.log(`[Ingest Route] ${filename} 模型处理与建库彻底完成！\n`);
+    
     return ingestSuccess({
       wikiPath: resolveWikiPath(),
       sourceId: saved.sourceId,
