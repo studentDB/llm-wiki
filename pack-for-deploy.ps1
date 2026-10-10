@@ -102,9 +102,10 @@ if ($missing.Count -gt 0) {
 
 $leaks = @( $entries | Where-Object {
         $_ -match '(^|/)node_modules/' -or `
-            $_ -match '(^|/)\.env(\.|$)' -or `
+            ( $_ -match '(^|/)\.env' -and $_ -notmatch '(^|/)\.env\.example$' ) -or `
             $_ -match '(^|/)apps/web/wikis/' -or `
-            $_ -match '(^|/)\.next/'
+            $_ -match '(^|/)\.next/' -or `
+            $_ -match '(^|/)release/'
     } )
 
 if ($leaks.Count -gt 0) {
@@ -112,7 +113,8 @@ if ($leaks.Count -gt 0) {
     Write-Host "[pack] ERROR: bundle contains files that must never be shipped:" -ForegroundColor Red
     foreach ($l in ($leaks | Select-Object -First 10)) { Write-Host "        - $l" -ForegroundColor Red }
     Write-Host ""
-    Write-Host "[pack] Fix: ensure they are in .gitignore, then re-run." -ForegroundColor Yellow
+    Write-Host "[pack] Note: apps/web/.env.example is fine (empty template) and is allowed." -ForegroundColor Yellow
+    Write-Host "[pack] Fix: ensure the offending files are in .gitignore, then re-run." -ForegroundColor Yellow
     exit 1
 }
 
