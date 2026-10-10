@@ -15,14 +15,16 @@
 services:
   wiki:
     build:
-      context: .
+      # Build context is the application source directory itself, so the
+      # Dockerfile and .dockerignore travel WITH the release (both are tracked
+      # in git and therefore land in the tarball). No kit/code drift possible.
+      context: ./app
       dockerfile: Dockerfile
       args:
-        # Where the source sits inside the build context.
-        #   app -> deploy-root layout (/srv/llm-wiki/app), the case here
-        #   .   -> dev repo root, if you build straight from the checkout
-        # See docs/16-docker-deployment.md section 1.1.
-        APP_SRC: app
+        # Where the source sits inside the build context. The context IS the
+        # source root here, so "." — see docs/16-docker-deployment.md section 1.1
+        # if you ever build straight from a checkout with a different layout.
+        APP_SRC: .
         # Uncomment if the build host can't reach fonts.googleapis.com
         # (next/font/google is fetched at build time):
         # HTTP_PROXY: http://proxy.example.com:8080

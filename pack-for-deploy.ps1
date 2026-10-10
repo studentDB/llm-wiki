@@ -2,31 +2,28 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Packs LLM Wiki application sources into a deployable tarball.
+    Packs LLM Wiki into a "release" folder ready to upload.
 
 .DESCRIPTION
-    Runs on the DEVELOPMENT machine (Windows). The resulting llm-wiki-app.tgz
-    is what you copy to the server and feed to update.sh.
+    Run on the DEVELOPMENT machine (Windows). After it finishes you get:
 
-    Uses `git archive`, which packs ONLY tracked files. That is the point:
-    node_modules/, .next/, apps/web/wikis/ and .env.local are all gitignored,
-    so they can never leak into a release bundle. It also means:
+        release/
+          llm-wiki-app.tgz   <- application code (upload every update)
+          docker-compose.yml <- container recipe (upload ONCE)
+          update.sh          <- one-command updater (upload ONCE)
 
-        *** UNCOMMITTED CHANGES ARE SILENTLY DROPPED FROM THE BUNDLE ***
-
-    Newly created files (Dockerfile, llm-wiki.config.json, ...) are untracked
-    until you `git add` them, so always commit before packing. This script
-    refuses to produce a bundle that is missing its deploy-kit entries.
+    IMPORTANT: packing uses `git archive`, which only includes files git is
+    already tracking. New files (Dockerfile, llm-wiki.config.json, ...) are
+    untracked until you `git add` them, so COMMIT BEFORE PACKING. This script
+    hard-fails if the bundle is missing anything it needs.
 
 .EXAMPLE
     .\pack-for-deploy.ps1
-    .\pack-for-deploy.ps1 -Ref v1.2.4 -OutFile C:\tmp\release.tgz
 #>
 
 [CmdletBinding()]
 param(
-    [string] $Ref = "HEAD",
-    [string] $OutFile = ""
+    [string] $Ref = "HEAD"
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,9 +33,8 @@ $ErrorActionPreference = "Stop"
 # can swallow quotes/braces, producing bogus ParseException errors.
 
 $RepoRoot = $PSScriptRoot
-if ([string]::IsNullOrEmpty($OutFile)) {
-    $OutFile = Join-Path $RepoRoot "llm-wiki-app.tgz"
-}
+$ReleaseDir = Join-Path $RepoRoot "release"
+$OutFile = Join-Path $ReleaseDir "llm-wiki-app.tgz"
 
 if (-not (Test-Path (Join-Path $RepoRoot "pnpm-workspace.yaml"))) {
     Write-Host "[pack] ERROR: pnpm-workspace.yaml not found under $RepoRoot" -ForegroundColor Red
@@ -54,16 +50,19 @@ if (-not $gitCmd) {
 # --- 1. warn about uncommitted work -----------------------------------------
 $dirty = @(& git -C $RepoRoot status --porcelain)
 if ($dirty.Count -gt 0) {
-    Write-Host "[pack] WARNING: uncommitted changes exist and will NOT be packed." -ForegroundColor Yellow
+    Write-Host "[pack] WARNING: uncommitted changes will NOT be packed." -ForegroundColor Yellow
     foreach ($line in ($dirty | Select-Object -First 10)) {
         Write-Host "        $line"
     }
-    Write-Host "[pack] Run 'git add -A && git commit' first if this is not what you want." -ForegroundColor Yellow
+    Write-Host "[pack] Run:  git add -A && git commit -m '...'   then re-run." -ForegroundColor Yellow
     Write-Host ""
 }
 
-# --- 2. create the archive ---------------------------------------------------
-Write-Host "[pack] packing $Ref -> $OutFile"
+# --- 2. archive the code -----------------------------------------------------
+if (-not (Test-Path $ReleaseDir)) { New-Item -ItemType Directory -Path $ReleaseDir | Out-Null }
+if (Test-Path $OutFile) { Remove-Item $OutFile -Force }
+
+Write-Host "[pack] packing $Ref -> release/llm-wiki-app.tgz"
 & git -C $RepoRoot archive --format=tar.gz --prefix=app/ -o $OutFile $Ref
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[pack] ERROR: git archive failed." -ForegroundColor Red
@@ -71,21 +70,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- 3. verify the bundle ----------------------------------------------------
-# Catching a broken bundle here costs seconds; catching it on the server costs
-# a failed deploy. Both checks are hard failures on purpose.
-
 $entries = @(& tar -tzf $OutFile)
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[pack] ERROR: cannot read back the archive with 'tar -tzf'." -ForegroundColor Red
     exit 1
 }
 
-# 3a. required entries - deploy kit + runtime config + lockfile
 $required = @(
     "app/Dockerfile",
-    "app/docker-compose.yml",
     "app/docker-entrypoint.sh",
-    "app/update.sh",
     "app/package.json",
     "app/pnpm-lock.yaml",
     "app/pnpm-workspace.yaml",
@@ -99,15 +92,14 @@ foreach ($r in $required) {
 
 if ($missing.Count -gt 0) {
     Write-Host ""
-    Write-Host "[pack] ERROR: bundle is missing required entries:" -ForegroundColor Red
+    Write-Host "[pack] ERROR: bundle is missing required files:" -ForegroundColor Red
     foreach ($m in $missing) { Write-Host "        - $m" -ForegroundColor Red }
     Write-Host ""
-    Write-Host "[pack] Most likely cause: the file is untracked, so 'git archive' skipped it." -ForegroundColor Yellow
-    Write-Host "[pack] Fix:  git add -A && git commit -m '...'   then re-run this script." -ForegroundColor Yellow
+    Write-Host "[pack] Cause: they are untracked, so 'git archive' skipped them." -ForegroundColor Yellow
+    Write-Host "[pack] Fix:   git add -A && git commit -m '...'   then re-run." -ForegroundColor Yellow
     exit 1
 }
 
-# 3b. forbidden entries - secrets, native deps, wiki data
 $leaks = @( $entries | Where-Object {
         $_ -match '(^|/)node_modules/' -or `
             $_ -match '(^|/)\.env(\.|$)' -or `
@@ -117,19 +109,35 @@ $leaks = @( $entries | Where-Object {
 
 if ($leaks.Count -gt 0) {
     Write-Host ""
-    Write-Host "[pack] ERROR: bundle contains entries that must never be shipped:" -ForegroundColor Red
+    Write-Host "[pack] ERROR: bundle contains files that must never be shipped:" -ForegroundColor Red
     foreach ($l in ($leaks | Select-Object -First 10)) { Write-Host "        - $l" -ForegroundColor Red }
     Write-Host ""
-    Write-Host "[pack] Fix: make sure they are listed in .gitignore, then re-run." -ForegroundColor Yellow
+    Write-Host "[pack] Fix: ensure they are in .gitignore, then re-run." -ForegroundColor Yellow
     exit 1
 }
 
-# --- 4. report ---------------------------------------------------------------
+# --- 4. copy the deploy kit next to the archive -------------------------------
+# update.sh and docker-compose.yml must live OUTSIDE ./app: update.sh replaces
+# ./app wholesale, and would delete itself if it lived inside.
+$kit = @("docker-compose.yml", "update.sh")
+foreach ($f in $kit) {
+    $src = Join-Path $RepoRoot $f
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $ReleaseDir $f) -Force
+    } else {
+        Write-Host "[pack] ERROR: deploy kit file missing: $f" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# --- 5. report ----------------------------------------------------------------
 $item = Get-Item $OutFile
 $sizeMb = [math]::Round($item.Length / 1MB, 2)
 Write-Host "[pack] verified: $($entries.Count) entries, kit + config present, no secrets"
-Write-Host "[pack] done: $($item.Name) ($sizeMb MB)"
 Write-Host ""
-Write-Host "Next steps on the server:"
-Write-Host "    cd /srv/llm-wiki"
-Write-Host "    ./update.sh /path/to/$($item.Name)"
+Write-Host "release/ is ready:"
+Write-Host "    $ReleaseDir\llm-wiki-app.tgz   ($sizeMb MB)"
+foreach ($f in $kit) { Write-Host "    $ReleaseDir\$f" }
+Write-Host ""
+Write-Host "Upload ALL of release/ to /srv/llm-wiki/ on the server, then run:"
+Write-Host "    cd /srv/llm-wiki && ./update.sh ./llm-wiki-app.tgz"

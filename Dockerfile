@@ -8,7 +8,7 @@
 #   image's Node ABI — it does NOT ship the application source. Source is bind
 #   mounted from the host at run time, so publishing an update is:
 #
-#       unpack tarball over ./app on the host  ->  docker compose restart wiki
+#       unpack tarball over ./app on the host  ->  docker compose up -d --force-recreate
 #
 #   No image rebuild, no `docker build` on the server.
 #
@@ -24,14 +24,12 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 # Where the application source lives INSIDE THE BUILD CONTEXT.
 #
-#   server deploy root (/srv/llm-wiki)  ->  source sits in ./app   ->  APP_SRC=app
-#   dev repo root      (llm-wiki/)      ->  source sits in ./       ->  APP_SRC=.
-#
-# The deploy root deliberately keeps the deploy kit (Dockerfile, compose,
-# entrypoint, update.sh) OUTSIDE ./app so that swapping ./app never clobbers
-# the kit — which is why the source is one level down there, and why every COPY
-# below is prefixed with ${APP_SRC}.
-ARG APP_SRC=app
+# The build context is always the source root:
+#   server:  /srv/llm-wiki/app   (update.sh unpacks the release there)
+#   dev box: llm-wiki/           (a plain checkout)
+# Either way the source is at the context root, hence "." — and every COPY below
+# is prefixed with ${APP_SRC} so a different layout only needs this one value.
+ARG APP_SRC=.
 
 # NOTE: NODE_ENV is deliberately NOT set here. pnpm skips devDependencies when
 # NODE_ENV=production, and the build (typescript, @types/*, ...) needs them.

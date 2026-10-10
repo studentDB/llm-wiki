@@ -3,7 +3,7 @@
 > 目标：把 LLM Wiki 跑在容器里，且**后续更新不需要在服务器上构建镜像**。
 > 更新动作固定为三步：**打包 → 覆盖宿主机 `./app` → 重建容器**。
 >
-> **要操作步骤，请看 `docs/17-deployment-runbook.md`**（逐条命令 + 预期输出 + 排障表）。
+> **要操作步骤（照抄命令就行），请看仓库根目录的 `DEPLOY.md`**。
 > 本文件讲**为什么这么设计**。
 
 ---
@@ -26,12 +26,12 @@
 
 ```
 /srv/llm-wiki/
-├── docker-compose.yml        # 本仓库根目录同名文件
-├── Dockerfile                # 本仓库根目录同名文件
-├── docker-entrypoint.sh      # 容器启动前置逻辑
-├── update.sh                 # 服务端一键更新 + 回滚提示
-├── .dockerignore             # 构建上下文过滤（尤其排除 data/ 与 .env*）
+├── llm-wiki-app.tgz          # 每次更新时替换它
+├── docker-compose.yml        # 传一次，之后基本不动
+├── update.sh                 # 传一次，之后基本不动
 ├── app/                      # ← 每次更新就是整体替换这里
+│   ├── Dockerfile            # 随代码包发布
+│   ├── .dockerignore         # 随代码包发布
 │   ├── apps/web/
 │   ├── packages/
 │   ├── package.json
@@ -42,19 +42,23 @@
     └── config/               # ~/.llm-wiki 的替代位置（activeWiki、密钥兜底）
 ```
 
-> ⚠️ 部署工具包（上面前 5 个文件）**必须放在 `/srv/llm-wiki/` 根目录，不能放进 `./app`**。
-> `update.sh` 会整体搬走 `./app`，工具包留在里面会把自己一起弄丢。
+> ⚠️ `docker-compose.yml` 和 `update.sh` **必须放在 `/srv/llm-wiki/` 根目录，不能放进 `./app`**。
+> `update.sh` 会整体搬走 `./app`，脚本住在里面会把自己一起删掉。
 
 > `apps/web/.env.local` **不进发布包**，由运维在 `./app/apps/web/.env.local` 单独维护；`update.sh` 在覆盖前会自动从备份里把它带回来。
 
-### 1.1 为什么源码在 `./app` 里而 Dockerfile 在外面
+### 1.1 目录层级与 `ARG APP_SRC`
 
-两者的目录层级不一样，Dockerfile 里用 `ARG APP_SRC` 吸收了这个差异：
+`Dockerfile` 和 `.dockerignore` **随代码包走**（它们都是 git 已跟踪文件，会被打进 `app/`），所以**不存在"工具包版本和代码版本不一致"的问题**。只有 `docker-compose.yml` 和 `update.sh` 必须留在外面——`update.sh` 会整体搬走 `./app`，住里面会被自己删掉。
 
-| 构建位置 | 布局 | 取值 |
+构建上下文（build context）始终是**源码根目录本身**：
+
+| 构建位置 | context | `APP_SRC` |
 | --- | --- | --- |
-| **服务器部署根**（主用法） | 源码在 `./app/` | `APP_SRC=app`（Dockerfile 默认值，compose 里也显式写了） |
-| 开发机仓库根 | 源码在 `./` | `docker build --build-arg APP_SRC=. .` |
+| **服务器**（主用法） | `./app`（= `/srv/llm-wiki/app`） | `.` |
+| 开发机仓库根 | `.` | `.` |
+
+两边取值一样，所以 Dockerfile 默认就是 `.`。`ARG` 的存在只是为了让"源码不在上下文根部"这种布局改一个值就能适配。
 
 如果 `APP_SRC` 写错，症状是构建期 `COPY pnpm-lock.yaml: not found`，**发生在构建阶段，不会拖到线上才炸**——这是刻意选的失败模式。
 
@@ -63,32 +67,26 @@
 ## 2. 首次部署
 
 ```bash
-# 1) 建部署目录
-mkdir -p /srv/llm-wiki/data/wikis /srv/llm-wiki/data/config
-cd /srv/llm-wiki
+# 1) 建部署目录，把 release/ 里的 3 个文件上传进来
+mkdir -p /srv/llm-wiki && cd /srv/llm-wiki
+#    /srv/llm-wiki/llm-wiki-app.tgz
+#    /srv/llm-wiki/docker-compose.yml
+#    /srv/llm-wiki/update.sh
 
-# 2) 放代码：把开发机上 pack-for-deploy.ps1 产出的 tgz 解开
-#    （压缩包内已带 app/ 顶层目录，故用 --strip-components=1 解到 ./app）
-mkdir -p app
-tar -xzf llm-wiki-app.tgz -C app --strip-components=1
-
-# 3) 把部署工具包提到部署根 —— 它必须活过 ./app 的整体替换
-cp app/Dockerfile app/docker-compose.yml app/docker-entrypoint.sh app/update.sh /srv/llm-wiki/
-cp app/.dockerignore /srv/llm-wiki/ 2>/dev/null || true
-chmod +x update.sh          # git 不保留执行位，首次需要手动加
-
-# 4) 密钥（不要提交进代码包）
+# 2) 密钥（不进代码包，手工维护）
+mkdir -p app/apps/web
 cp /path/to/your/.env.local app/apps/web/.env.local
 
-# 5) 建镜像并起容器
-docker compose up -d --build
+# 3) 一条命令搞定：备份 → 解压 → 构建镜像 → 启动
+chmod +x update.sh          # git 不保留执行位，首次需要手动加
+./update.sh ./llm-wiki-app.tgz
 
-# 6) 看日志
+# 4) 看日志
 docker compose logs -f wiki
 ```
 
 浏览器打开 `http://<服务器IP>:3737`。
-完整步骤（含前置检查、验收、回滚）见 `docs/17-deployment-runbook.md`。
+完整步骤（含前置检查、验收、回滚）见仓库根目录 `DEPLOY.md`。
 
 ---
 
