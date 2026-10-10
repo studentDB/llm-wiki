@@ -119,11 +119,20 @@ if ($leaks.Count -gt 0) {
 # --- 4. copy the deploy kit next to the archive -------------------------------
 # update.sh and docker-compose.yml must live OUTSIDE ./app: update.sh replaces
 # ./app wholesale, and would delete itself if it lived inside.
+#
+# They are copied from the WORKING TREE, and on Windows `core.autocrlf=true`
+# makes that tree CRLF (the LF/CRLF warnings you see during `git add`). A CRLF
+# bash script dies on Linux with `/usr/bin/env: 'bash\r'` or `$'\r': command
+# not found`, so both files are re-written here with LF endings and no BOM.
+# (The .tgz is safe regardless: `git archive` always emits the repo's LF form.)
 $kit = @("docker-compose.yml", "update.sh")
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 foreach ($f in $kit) {
     $src = Join-Path $RepoRoot $f
     if (Test-Path $src) {
-        Copy-Item $src (Join-Path $ReleaseDir $f) -Force
+        $text = [System.IO.File]::ReadAllText($src)
+        $text = $text -replace "`r`n", "`n"
+        [System.IO.File]::WriteAllText((Join-Path $ReleaseDir $f), $text, $utf8NoBom)
     } else {
         Write-Host "[pack] ERROR: deploy kit file missing: $f" -ForegroundColor Red
         exit 1

@@ -190,6 +190,7 @@ cd /srv/llm-wiki && tar -czf backup-$(date +%F).tgz data
 | 页面打不开 | ① `docker compose ps` 看是否 Up；② 云服务器检查 3737 安全组；③ `docker compose logs --tail=100 wiki` |
 | 更新后页面没变化 | 强制重建一次：`docker compose up -d --force-recreate wiki` |
 | 报 `permission denied: ./update.sh` | `chmod +x update.sh` |
+| 报 `$'\r': command not found` 或 `/usr/bin/env: 'bash\r'` | 脚本换行符是 Windows 的 CRLF。新版打包脚本已自动转 LF——回本地重新 `.\pack-for-deploy.ps1` 再传一次；应急可在服务器执行 `sed -i 's/\r$//' update.sh` |
 | 报 `COPY ... not found` | `./app` 里的代码没解开。检查 `ls /srv/llm-wiki/app` 有没有 `apps/` 和 `packages/` |
 
 ---
