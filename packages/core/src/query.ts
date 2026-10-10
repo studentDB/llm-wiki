@@ -116,6 +116,8 @@ async function loadRelevantPages(
   const selected = new Map<string, { slug: string; title: string }>();
   let mode: "explicit-links" | "exact-mentions" | "fts" | "fts+mentions" =
     "explicit-links";
+  // Counted separately from slug mentions — see the top-up guard below.
+  let deliberateHitCount = 0;
 
   // Explicit wiki links are authoritative and should never depend on FTS.
   for (const slug of extractWikiSlugs(question)) {
@@ -132,11 +134,13 @@ async function loadRelevantPages(
     const normalizedQuestion = normalizeForMentionMatch(question);
     for (const page of pagesOnDisk) {
       const title = normalizeForMentionMatch(page.title);
-      if (
-        mentionedSlugs.has(page.slug) ||
-        (title.length > 0 && normalizedQuestion.includes(title))
-      ) {
+      const bySlug = mentionedSlugs.has(page.slug);
+      const byTitle = title.length > 0 && normalizedQuestion.includes(title);
+      if (bySlug || byTitle) {
         selected.set(page.slug, { slug: page.slug, title: page.title });
+        if (isDeliberateMention(page.slug, page.title, byTitle)) {
+          deliberateHitCount += 1;
+        }
       }
     }
   }
@@ -151,8 +155,13 @@ async function loadRelevantPages(
   // A bare product name that collides with a page slug ("ConST810" -> const810)
   // shows up in nearly every question. Treating that as an explicit scope
   // starved answers of every sibling page, so FTS still runs and tops the
-  // selection up. Only real [[wiki links]] are allowed to narrow the scope.
-  if (explicitLinkCount === 0 && selected.size < TOP_K_RELEVANT_PAGES) {
+  // selection up. Only [[wiki links]] and deliberate mentions (a full title or
+  // a full multi-segment slug) are allowed to narrow the scope.
+  if (
+    explicitLinkCount === 0 &&
+    deliberateHitCount === 0 &&
+    selected.size < TOP_K_RELEVANT_PAGES
+  ) {
     mode = selected.size === 0 ? "fts" : "fts+mentions";
     let hits: Array<{ slug: string; title: string }> = [];
     try {
@@ -201,6 +210,28 @@ function extractWikiSlugs(question: string): string[] {
   return Array.from(question.matchAll(/\[\[([a-z0-9-]+)(?:\|[^\]]+)?\]\]/gi), (match) =>
     match[1]!.toLowerCase(),
   );
+}
+
+/**
+ * Decide whether naming this page is a deliberate "answer from THIS page only"
+ * scope, versus a product name dropped in passing. The measure is how much the
+ * user actually typed, not what the slug looks like:
+ *
+ *   - a multi-segment slug typed out in full ("issue-hart-poc-gaps") — deliberate
+ *   - a descriptive title ("HART 章节试点证据缺口", "Shor's Algorithm") — deliberate
+ *   - a single bare word ("ConST810", "Operation") — NOT deliberate
+ *
+ * The last case is the bug f480fb8 fixed: a product name shows up in nearly
+ * every question, so narrowing on it answered from the product page alone and
+ * starved every sibling page out of the context.
+ */
+function isDeliberateMention(slug: string, title: string, byTitle: boolean): boolean {
+  if (slug.includes("-")) return true;
+  if (!byTitle) return false;
+
+  const latinWords = title.match(/[A-Za-z0-9]+/g)?.length ?? 0;
+  const cjkChars = title.match(/\p{Script=Han}/gu)?.length ?? 0;
+  return latinWords >= 2 || cjkChars >= 4;
 }
 
 function normalizeForMentionMatch(value: string): string {

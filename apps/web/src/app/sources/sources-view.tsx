@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 
 import { CostPreview } from "@/components/cost-preview";
+import { useI18n } from "@/components/language-provider";
 import { Card, PageContainer, PageHeader } from "@/components/page-shell";
 import { SourcesList } from "@/components/sources/sources-list";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ type IngestResult = IngestSuccess | { ok: false; error: string; type?: string } 
 const ACCEPTED_EXTENSIONS = ".md,.markdown,.txt,.html,.htm,.pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp";
 
 export function SourcesView() {
+  const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("paste");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -183,15 +185,15 @@ export function SourcesView() {
     <PageContainer>
       <PageHeader
         eyebrow="Add to wiki"
-        title="Sources"
-        description="Pasted text and Markdown go straight in. URLs fetch + extract via Readability. PDFs and images go through a vision model. DOCX/PPTX/XLSX get pre-parsed locally."
+        title={t("sources.title")}
+        description={t("sources.headDescription")}
       />
 
       <section className="mb-8 rounded-lg border border-border/70 bg-card p-5">
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-display text-h3 font-semibold">Ingested sources</h2>
+          <h2 className="font-display text-h3 font-semibold">{t("sources.ingestedList")}</h2>
           <p className="text-caption text-muted-foreground">
-            Originals live in <code className="font-mono">raw/</code>
+            {t("sources.originalsHint")} <code className="font-mono">raw/</code>
           </p>
         </div>
         <SourcesList refreshNonce={refreshNonce} />
@@ -235,12 +237,12 @@ export function SourcesView() {
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="title">
-              Title (optional)
+              {t("sources.titleField")} ({t("common.optional")})
             </label>
             <Input
               id="title"
               type="text"
-              placeholder="Defaults: first line for paste, page title for URL, filename for file"
+              placeholder={t("sources.titlePlaceholder")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={busy}
@@ -255,7 +257,7 @@ export function SourcesView() {
               <Textarea
                 id="text"
                 rows={14}
-                placeholder="Paste an article, paper, or notes here..."
+                placeholder={t("sources.pastePlaceholder")}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 disabled={busy}
@@ -309,7 +311,7 @@ export function SourcesView() {
                         onClick={() => fileInputRef.current?.click()}
                         className="text-primary underline underline-offset-2"
                       >
-                        choose one
+                        {t("sources.chooseOne")}
                       </button>
                       .
                     </>
@@ -348,12 +350,12 @@ export function SourcesView() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" disabled={!canSubmit}>
-              {busy ? "Ingesting…" : "Ingest"}
+              {busy ? t("sources.ingesting") : t("sources.ingest")}
             </Button>
             <p className="text-xs text-muted-foreground">
               {mode === "file" && file && /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.name)
-                ? "Vision call — uses the model from Settings → Models → vision."
-                : "Text call — uses the ingest model. ~10–30s for typical sources."}
+                ? t("sources.hintVision")
+                : t("sources.hintText")}
             </p>
           </div>
         </form>

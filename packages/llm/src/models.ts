@@ -121,7 +121,8 @@ export const SUGGESTED_MODELS: ReadonlyArray<ModelChoice> = [
   {
     id: "custom-model",
     label: "Custom Private Model",
-    notes: "Your own OpenAI-compatible endpoint. Set CUSTOM_OPENAI_BASE_URL env var.",
+    notes:
+      "Your own OpenAI-compatible endpoint. Set providers.custom.baseUrl in llm-wiki.config.json (or CUSTOM_OPENAI_BASE_URL).",
     vision: false,
   },
   // Alibaba Cloud DashScope

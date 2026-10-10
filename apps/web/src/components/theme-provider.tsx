@@ -2,7 +2,10 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-export type UiTheme = "light" | "dark" | "auto";
+import { isUiTheme, type UiTheme } from "@/lib/theme-script";
+
+// Re-exported so existing `@/components/theme-provider` imports keep working.
+export type { UiTheme };
 
 type ThemeContextValue = {
   theme: UiTheme;
@@ -20,15 +23,27 @@ function applyDocumentTheme(theme: UiTheme): void {
   document.documentElement.classList.toggle("dark", isDark);
 }
 
-function readInitialTheme(): UiTheme {
-  if (typeof window === "undefined") return "auto";
+/**
+ * The user's stored pick wins; otherwise we start from whatever the deployment
+ * configured (`llm-wiki.config.json → ui.theme`) and hand it down through the
+ * root layout. It used to fall back to a hard-coded "auto", which silently
+ * ignored that config key.
+ */
+function readInitialTheme(defaultTheme: UiTheme): UiTheme {
+  if (typeof window === "undefined") return defaultTheme;
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "auto") return stored;
-  return "auto";
+  if (isUiTheme(stored)) return stored;
+  return defaultTheme;
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<UiTheme>(readInitialTheme);
+export function ThemeProvider({
+  children,
+  defaultTheme = "auto",
+}: {
+  children: React.ReactNode;
+  defaultTheme?: UiTheme;
+}) {
+  const [theme, setThemeState] = useState<UiTheme>(() => readInitialTheme(defaultTheme));
 
   useEffect(() => {
     applyDocumentTheme(theme);
@@ -55,8 +70,3 @@ export function useTheme(): ThemeContextValue {
   if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
   return ctx;
 }
-
-// Inline script that runs before React hydration to avoid the dark-mode FOUC.
-// Reads the same localStorage key + system preference and toggles .dark on
-// <html> immediately.
-export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('${STORAGE_KEY}')||'auto';var d=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;

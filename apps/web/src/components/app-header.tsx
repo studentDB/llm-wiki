@@ -3,30 +3,34 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useI18n } from "@/components/language-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WikiSwitcher } from "@/components/wiki-switcher";
+import { LanguageToggle } from "@/components/language-toggle";
 import { cn } from "@/lib/utils";
 
 // Primary destinations — what most actions converge on. Reads in the order a
 // user would naturally encounter them in a session (knowledge in, knowledge
-// out, conversation, hygiene).
+// out, conversation, hygiene). Labels are looked up through the i18n
+// dictionary keyed by href so the structure stays static while text localizes.
 const PRIMARY_NAV = [
-  { label: "Wiki", href: "/wiki" },
-  { label: "Graph", href: "/graph" },
-  { label: "Sources", href: "/sources" },
-  { label: "Query", href: "/query" },
-  { label: "Chats", href: "/chats" },
-  { label: "Lint", href: "/lint" },
+  { labelKey: "nav.wiki", href: "/wiki" },
+  { labelKey: "nav.graph", href: "/graph" },
+  { labelKey: "nav.sources", href: "/sources" },
+  { labelKey: "nav.query", href: "/query" },
+  { labelKey: "nav.chats", href: "/chats" },
+  { labelKey: "nav.lint", href: "/lint" },
 ] as const;
 
 // Utility cluster — config + meta. Kept visually separate from primary nav.
 const UTIL_NAV = [
-  { label: "Schema", href: "/schema" },
-  { label: "Settings", href: "/settings" },
+  { labelKey: "nav.schema", href: "/schema" },
+  { labelKey: "nav.settings", href: "/settings" },
 ] as const;
 
 export function AppHeader() {
   const pathname = usePathname();
+  const { t } = useI18n();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 
@@ -36,7 +40,7 @@ export function AppHeader() {
       <Link
         href="/"
         className="group flex items-center gap-2.5"
-        aria-label="Home"
+        aria-label={t("common.home")}
       >
         <span
           aria-hidden
@@ -65,7 +69,7 @@ export function AppHeader() {
             href={item.href}
             className={cn("nav-link", isActive(item.href) && "is-active")}
           >
-            {item.label}
+            {t(item.labelKey)}
           </Link>
         ))}
       </nav>
@@ -85,12 +89,13 @@ export function AppHeader() {
               href={item.href}
               className={cn("nav-link", isActive(item.href) && "is-active")}
             >
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           ))}
         </nav>
 
         <ThemeToggle />
+        <LanguageToggle />
 
         {/* Compact mobile nav — only on small screens. Wiki-switcher link
             at the top so mobile users have a quick-switch affordance too. */}
@@ -103,7 +108,7 @@ export function AppHeader() {
               href="/settings?tab=wikis"
               className="block border-b border-border/60 px-3 py-1.5 text-caption uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              Manage wikis →
+              {t("nav.manageWikis")}
             </Link>
             {[...PRIMARY_NAV, ...UTIL_NAV].map((item) => (
               <Link
@@ -114,7 +119,7 @@ export function AppHeader() {
                   isActive(item.href) && "text-primary",
                 )}
               >
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             ))}
           </div>

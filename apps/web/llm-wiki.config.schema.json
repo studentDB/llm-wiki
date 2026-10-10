@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LLM Wiki runtime config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": { "const": 1 },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "host": { "type": "string" },
+        "logQueryPrompt": { "type": "boolean" }
+      }
+    },
+    "wiki": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseDir": { "type": "string" },
+        "defaultProduct": { "type": ["string", "null"] },
+        "products": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "topic": { "type": "string" },
+              "template": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "custom": { "$ref": "#/definitions/provider" },
+        "aliyun": { "$ref": "#/definitions/provider" },
+        "ollama": { "$ref": "#/definitions/provider" },
+        "openrouter": { "$ref": "#/definitions/provider" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ingest": { "$ref": "#/definitions/slot" },
+            "query": { "$ref": "#/definitions/slot" },
+            "chat": { "$ref": "#/definitions/slot" },
+            "lint": { "$ref": "#/definitions/slot" },
+            "vision": { "$ref": "#/definitions/slot" }
+          }
+        },
+        "autoLintAfterIngest": { "type": "boolean" },
+        "showCostEstimates": { "type": "boolean" },
+        "requireApprovalForIngest": { "type": "boolean" }
+      }
+    },
+    "ingestRouting": {
+      "type": "object",
+      "additionalProperties": { "enum": ["vision", "ingest"] }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": { "enum": ["zh-CN", "en"] },
+        "theme": { "enum": ["light", "dark", "auto"] }
+      }
+    }
+  },
+  "definitions": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "baseUrl": { "type": ["string", "null"] } }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": { "enum": ["openrouter", "ollama", "custom", "aliyun"] },
+        "model": { "type": "string" }
+      }
+    }
+  }
+}

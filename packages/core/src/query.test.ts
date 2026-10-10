@@ -116,6 +116,38 @@ describe("queryWiki", () => {
     expect(loaded.sort()).toEqual([...(expected as string[])].sort());
   });
 
+  // Guards the deliberate-product-name carve-out: a bare single-segment slug
+  // ("const810") is usually a product name dropped in passing, so FTS must still
+  // top the selection up. Narrowing here is what starved answers of every
+  // sibling page (the bug f480fb8 fixed).
+  it("bare single-segment slug keeps the FTS top-up", async () => {
+    // Both pages mention the product, mirroring the real failure: a product
+    // name appears all over the wiki, so narrowing on it would answer from the
+    // product page alone and starve the sibling page out.
+    await seed("const810", "ConST810", "HART CONST810_BODY");
+    await seed("operation-hart", "Operation", "HART CONST810 OPERATION_BODY");
+    const client = stubClient([
+      {
+        answer: "test",
+        pagesUsed: [],
+        suggestedNewPage: null,
+        confidence: "low",
+        caveats: [],
+      },
+    ]);
+    await queryWiki({
+      question: "const810",
+      wikiPath,
+      db,
+      client,
+      model: "stub/sonnet",
+    });
+    const request = vi.mocked(client.chat.completions.create).mock.calls[0]![0];
+    const system = String(request.messages[0]!.content);
+    const loaded = Array.from(system.matchAll(/\(slug: ([a-z0-9-]+), type:/g), (m) => m[1]);
+    expect(loaded.sort()).toEqual(["const810", "operation-hart"]);
+  });
+
   it("rejects oversized explicit selections before calling the model", async () => {
     const client = stubClient([]);
     const question = Array.from({ length: 11 }, (_, i) => `[[page-${i}]]`).join(" ");

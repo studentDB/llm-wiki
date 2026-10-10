@@ -1,21 +1,40 @@
 import { NextResponse } from "next/server";
 
 import {
-  DEFAULT_WIKI_SETTINGS,
   loadWikiSettings,
+  resolveDefaultWikiSettings,
   saveWikiSettings,
   type ModelSlotConfig,
   type WikiSettings,
 } from "@llm-wiki/core";
 
-import { resolveWikiPath } from "@/lib/server-wiki";
+import { resolveWikiPath, wikiProductErrorResponse } from "@/lib/server-wiki";
 
 export const dynamic = "force-dynamic";
 
+/** Shared guard: an unknown X-Wiki-Product must read as a clear 400, not a 500. */
+function guard(err: unknown): NextResponse | null {
+  return wikiProductErrorResponse(err);
+}
+
 export async function GET() {
-  const wikiPath = resolveWikiPath();
+  let wikiPath: string;
+  try {
+    wikiPath = resolveWikiPath();
+  } catch (err) {
+    const res = guard(err);
+    if (res) return res;
+    throw err;
+  }
   const settings = await loadWikiSettings(wikiPath);
-  return NextResponse.json({ settings, wikiPath });
+  // Defaults now come from llm-wiki.config.json when present, so the UI's
+  // "reset to default" affordance lands on the deployment's configured values
+  // rather than the hard-coded fallbacks.
+  return NextResponse.json({
+    settings,
+    wikiPath,
+    defaults: resolveDefaultWikiSettings(),
+  });
 }
 
 type PutBody = Partial<{
@@ -33,7 +52,14 @@ export async function PUT(req: Request) {
   } catch {
     return NextResponse.json({ error: "expected JSON body" }, { status: 400 });
   }
-  const wikiPath = resolveWikiPath();
+  let wikiPath: string;
+  try {
+    wikiPath = resolveWikiPath();
+  } catch (err) {
+    const res = guard(err);
+    if (res) return res;
+    throw err;
+  }
   const current = await loadWikiSettings(wikiPath);
   const next: WikiSettings = {
     version: 1,
@@ -61,5 +87,6 @@ export async function PUT(req: Request) {
   await saveWikiSettings(wikiPath, next);
   // Return both the saved settings and the model defaults for the UI's
   // "reset to default" affordance.
-  return NextResponse.json({ ok: true, settings: next, defaults: DEFAULT_WIKI_SETTINGS });
+  const defaults = resolveDefaultWikiSettings();
+  return NextResponse.json({ ok: true, settings: next, defaults });
 }

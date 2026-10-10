@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/language-provider";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { AboutTab } from "@/components/settings/about-tab";
 import { ApiTab } from "@/components/settings/api-tab";
@@ -14,14 +15,25 @@ import { cn } from "@/lib/utils";
 
 type Tab = "general" | "wikis" | "models" | "api" | "costs" | "about";
 const TAB_ORDER: Tab[] = ["general", "wikis", "models", "api", "costs", "about"];
-const TAB_LABEL: Record<Tab, string> = {
-  general: "General",
-  wikis: "Wikis",
-  models: "Models",
-  api: "API",
-  costs: "Costs",
-  about: "About",
+// Keys are looked up per-tab so the labels localize without duplicating the
+// structure that drives both the tablist and the pane switch below.
+const TAB_LABEL_KEY: Record<Tab, string> = {
+  general: "settings.tabs.general",
+  wikis: "settings.tabs.wikis",
+  models: "settings.tabs.models",
+  api: "settings.tabs.api",
+  costs: "settings.tabs.costs",
+  about: "settings.tabs.about",
 };
+
+const UI_COPY = {
+  eyebrow: { "zh-CN": "配置", en: "Configuration" },
+  description: {
+    "zh-CN":
+      "每个知识库的偏好设置保存在该知识库目录内；密钥保存在系统钥匙串（或回退到 ~/.llm-wiki/config.json）。",
+    en: "Per-wiki preferences live in your wiki folder. The API key lives in your OS keychain (or ~/.llm-wiki/config.json as fallback).",
+  },
+} as const;
 
 function parseTab(raw: string | null): Tab {
   return TAB_ORDER.includes(raw as Tab) ? (raw as Tab) : "general";
@@ -33,6 +45,7 @@ export default function SettingsPage() {
   // dropdown or anywhere else) deep-link straight to the right pane.
   const initialTab = parseTab(search?.get("tab") ?? null);
   const [tab, setTab] = useState<Tab>(initialTab);
+  const { locale, t } = useI18n();
   useEffect(() => {
     const next = parseTab(search?.get("tab") ?? null);
     setTab(next);
@@ -41,30 +54,30 @@ export default function SettingsPage() {
   return (
     <PageContainer>
       <PageHeader
-        eyebrow="Configuration"
-        title="Settings"
-        description="Per-wiki preferences live in your wiki folder. The API key lives in your OS keychain (or ~/.llm-wiki/config.json as fallback)."
+        eyebrow={UI_COPY.eyebrow[locale]}
+        title={t("settings.title")}
+        description={UI_COPY.description[locale]}
       />
 
       <nav
         role="tablist"
         className="mb-5 inline-flex rounded-md border border-border/70 bg-secondary/40 p-1 text-ui"
       >
-        {TAB_ORDER.map((t) => (
+        {TAB_ORDER.map((name) => (
           <button
-            key={t}
+            key={name}
             type="button"
             role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
+            aria-selected={tab === name}
+            onClick={() => setTab(name)}
             className={cn(
               "rounded px-3 py-1",
-              tab === t
+              tab === name
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {TAB_LABEL[t]}
+            {t(TAB_LABEL_KEY[name])}
           </button>
         ))}
       </nav>

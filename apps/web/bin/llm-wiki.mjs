@@ -7,18 +7,105 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SELF_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_DIR = resolve(SELF_DIR, "..");
-const DEFAULT_PORT = Number(process.env["LLM_WIKI_PORT"] ?? 3737);
+
+// ---- runtime config file (llm-wiki.config.json) ---------------------------
+// Duplicated on purpose — this file must stay self-contained so it boots with
+// plain `node` from a global install, without resolving TS workspace sources.
+// Same discovery order as packages/llm/src/runtime-config.ts.
+
+const CONFIG_FILENAME = "llm-wiki.config.json";
+
+function findRuntimeConfigFile() {
+  const explicit = process.env["LLM_WIKI_CONFIG"];
+  if (explicit && existsSync(explicit)) return resolve(explicit);
+  let dir = process.cwd();
+  for (let i = 0; i < 8; i++) {
+    const candidate = join(dir, CONFIG_FILENAME);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function loadRuntimeConfig() {
+  const path = findRuntimeConfigFile();
+  if (!path) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return typeof parsed === "object" && parsed !== null ? { ...parsed, __path: path } : null;
+  } catch (err) {
+    console.warn(`warning: ignoring unreadable ${path}: ${err.message}`);
+    return null;
+  }
+}
+
+const RUNTIME_CONFIG = loadRuntimeConfig();
+
+function resolveProductDir(product) {
+  const cfg = RUNTIME_CONFIG;
+  const baseDir = cfg?.wiki?.baseDir ?? process.env["LLM_WIKI_BASE_DIR"] ?? "wikis";
+  const root = cfg?.__path ? dirname(cfg.__path) : process.cwd();
+  return resolve(root, baseDir, product);
+}
+
+/** Minimal .env reader. The CLI spawns the server itself when running in dev,
+ *  so Next's automatic .env.local loading doesn't apply — without this, keys
+ *  placed in .env.local would never reach the child process. */
+function loadDotEnv(path) {
+  const out = {};
+  if (!existsSync(path)) return out;
+  try {
+    const raw = readFileSync(path, "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (key) out[key] = value;
+    }
+  } catch {
+    // Malformed dotenv — treat as empty rather than failing startup.
+  }
+  return out;
+}
+
+const DEFAULT_PORT = Number(
+  process.env["LLM_WIKI_PORT"] ?? RUNTIME_CONFIG?.server?.port ?? 3737,
+);
 
 // ---- argv parsing --------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { _: [], flags: { port: null, open: true, quiet: false, debug: false } };
+  const args = {
+    _: [],
+    flags: {
+      port: null,
+      open: true,
+      quiet: false,
+      debug: false,
+      product: null,
+      topic: null,
+      template: null,
+      activate: true,
+    },
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") {
@@ -29,6 +116,20 @@ function parseArgs(argv) {
       args.flags.quiet = true;
     } else if (a === "--debug") {
       args.flags.debug = true;
+    } else if (a === "--product") {
+      args.flags.product = argv[++i];
+    } else if (a === "--topic") {
+      args.flags.topic = argv[++i];
+    } else if (a === "--template") {
+      args.flags.template = argv[++i];
+    } else if (a === "--no-activate") {
+      args.flags.activate = false;
+    } else if (a.startsWith("--product=")) {
+      args.flags.product = a.slice("--product=".length);
+    } else if (a.startsWith("--topic=")) {
+      args.flags.topic = a.slice("--topic=".length);
+    } else if (a.startsWith("--template=")) {
+      args.flags.template = a.slice("--template=".length);
     } else if (a.startsWith("--port=")) {
       args.flags.port = Number(a.slice("--port=".length));
     } else if (a === "--help" || a === "-h") {
@@ -223,6 +324,7 @@ function cmdHelp() {
 Commands:
   start [folder]          Start the wiki server (default command)
   init [folder]           Initialize a folder as a wiki without starting
+  init --product <name>   Initialize <baseDir>/<name> from llm-wiki.config.json
   config                  Print the global config path
   config get <key>        Print a config value
   config set <key> <val>  Set a config value
@@ -231,32 +333,103 @@ Commands:
   help                    Show this help
 
 Options:
-  --port <port>           Port to bind (default: 3737, or LLM_WIKI_PORT env)
+  --port <port>           Port to bind (default: config server.port, else 3737)
+  --product <name>        Target product for init (path resolved via config baseDir)
+  --topic <topic>         Seed topic to stamp into CLAUDE.md + settings.json
+  --template <id>         Schema template hint (applied by /api/wikis/init)
+  --no-activate           Don't make an initialized product the active wiki
   --no-open               Don't open the browser automatically
   --quiet                 Suppress non-error logs
   --debug                 Verbose logs
+
+Configuration:
+  Secrets go in .env.local (never committed):
+    CUSTOM_OPENAI_API_KEY, ALIYUN_API_KEY, OPENROUTER_API_KEY
+  Everything else goes in llm-wiki.config.json (committable):
+    server.port, wiki.baseDir, wiki.defaultProduct, wiki.products,
+    providers.*.baseUrl, defaults.models.*, ingestRouting, ui.language
 
 Examples:
   llm-wiki start
   llm-wiki start ~/research/quantum --port 4000
   llm-wiki init ~/research/quantum
+  llm-wiki init --product ConST326 --topic "ConST326 智能压力校验仪"
   llm-wiki doctor
 `);
 }
 
 async function cmdInit(args) {
-  const wikiPath = resolveWikiPath(args._[1]);
+  // Two forms:
+  //   llm-wiki init [folder]                       — init an explicit folder (classic)
+  //   llm-wiki init --product <name> [--topic …]   — init by product name using
+  //                                                  llm-wiki.config.json's baseDir
+  // The product form is the unattended-deployment path: a script only needs to
+  // know the product name, not where the repo happens to live.
+  const product = args.flags.product || null;
+  const wikiPath = product ? resolveProductDir(product) : resolveWikiPath(args._[1]);
+
+  const topic =
+    args.flags.topic ||
+    (product && RUNTIME_CONFIG?.wiki?.products?.[product]?.topic) ||
+    null;
+  const template =
+    args.flags.template ||
+    (product && RUNTIME_CONFIG?.wiki?.products?.[product]?.template) ||
+    null;
+
   if (!args.flags.quiet) {
     console.log(`Initializing wiki at ${wikiPath}`);
   }
   await initWikiFolder(wikiPath);
+
+  if (topic) {
+    await stampTopic(wikiPath, topic);
+  }
+  if (template && template !== "blank") {
+    console.warn(
+      `note: template "${template}" is applied by POST /api/wikis/init at runtime; the CLI only seeds the folder structure here.`,
+    );
+  }
+
   if (!args.flags.quiet) {
     console.log(`✓ created: CLAUDE.md, index.md, log.md, .gitignore`);
     console.log(
       `✓ created: ${WIKI_PATHS.wiki}/, ${WIKI_PATHS.raw}/, ${WIKI_PATHS.chats}/{inbox,pinned,archive}/, ${WIKI_PATHS.tooling}/`,
     );
-    console.log(`Next: llm-wiki start ${wikiPath === process.cwd() ? "" : wikiPath}`.trim());
+    if (topic) console.log(`✓ topic: ${topic}`);
+    console.log(
+      `Next: ${product ? `llm-wiki start` : `llm-wiki start ${wikiPath}`}`.trim(),
+    );
   }
+}
+
+/**
+ * Writes the topic into both places the app reads it from: the `## Topic`
+ * section of CLAUDE.md (which is what actually steers the ingest LLM) and
+ * `.llm-wiki/settings.json` (which is what the requireSetup gate checks).
+ */
+async function stampTopic(wikiPath, topic) {
+  const schemaPath = join(wikiPath, WIKI_PATHS.schema);
+  try {
+    const raw = await readFile(schemaPath, "utf8");
+    const stamped = raw.replace(/## Topic\n\n\([^)]*\)/, `## Topic\n\n${topic}`);
+    await writeFile(schemaPath, stamped, "utf8");
+  } catch {
+    // Missing CLAUDE.md shouldn't abort init — the settings stamp below still lands.
+  }
+  const settingsPath = join(wikiPath, WIKI_PATHS.tooling, "settings.json");
+  let existing = {};
+  try {
+    existing = JSON.parse(await readFile(settingsPath, "utf8"));
+  } catch {
+    existing = {};
+  }
+  await mkdir(dirname(settingsPath), { recursive: true });
+  await writeFile(
+    settingsPath,
+    `${JSON.stringify({ version: 1, topic: "", ...existing, topic }, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function cmdConfig(args) {
@@ -333,6 +506,50 @@ async function cmdDoctor() {
     );
   }
 
+  console.log("");
+  console.log("Checking runtime config...");
+  if (RUNTIME_CONFIG) {
+    console.log(`  ✓ llm-wiki.config.json: ${RUNTIME_CONFIG.__path}`);
+    const products = Object.keys(RUNTIME_CONFIG.wiki?.products ?? {});
+    const def = RUNTIME_CONFIG.wiki?.defaultProduct ?? null;
+    console.log(
+      def
+        ? `  ✓ wiki.defaultProduct: ${def}`
+        : `  · wiki.defaultProduct: (not set — falls back to ~/.llm-wiki/config.json activeWiki)`,
+    );
+    console.log(
+      products.length > 0
+        ? `  ✓ known products: ${products.join(", ")}`
+        : `  · no wiki.products declared — product allow-list guard is off`,
+    );
+    const missing = [];
+    for (const p of ["ingest", "query", "chat", "lint", "vision"]) {
+      if (!RUNTIME_CONFIG.defaults?.models?.[p]?.model) missing.push(p);
+    }
+    console.log(
+      missing.length === 0
+        ? `  ✓ all 5 model slots configured`
+        : `  · model slots missing from config: ${missing.join(", ")} (built-in defaults apply)`,
+    );
+  } else {
+    console.log(`  · no llm-wiki.config.json found — using built-in defaults`);
+  }
+
+  // Secrets live in .env.local, loaded by Next or by this CLI's start command.
+  const dotenv = loadDotEnv(join(PACKAGE_DIR, ".env.local"));
+  const secretKeys = ["CUSTOM_OPENAI_API_KEY", "ALIYUN_API_KEY", "OPENROUTER_API_KEY"];
+  const present = secretKeys.filter((k) => (dotenv[k] || process.env[k]));
+  console.log("");
+  console.log("Checking secrets...");
+  if (present.length > 0) {
+    console.log(`  ✓ keys present: ${present.join(", ")}`);
+  } else {
+    console.log(
+      `  ✗ no provider keys found. Create apps/web/.env.local (see .env.example).`,
+    );
+    allOk = false;
+  }
+
   if (keyFromConfig) {
     console.log("");
     console.log("Checking OpenRouter connectivity...");
@@ -368,7 +585,17 @@ async function cmdDoctor() {
 }
 
 async function cmdStart(args) {
-  const wikiPath = resolveWikiPath(args._[1]);
+  // Only pin LLM_WIKI_PATH when the user named a folder explicitly. Leaving it
+  // unset lets the server fall through to `wiki.defaultProduct` in
+  // llm-wiki.config.json — which is the whole point of the config file.
+  const explicitFolder = args._[1] ? resolveWikiPath(args._[1]) : null;
+  const wikiPath =
+    explicitFolder ??
+    (RUNTIME_CONFIG?.wiki?.defaultProduct
+      ? resolveProductDir(RUNTIME_CONFIG.wiki.defaultProduct)
+      : null) ??
+    process.cwd();
+
   const toolingDir = join(wikiPath, WIKI_PATHS.tooling);
   if (!(await fileExists(toolingDir))) {
     if (!args.flags.quiet) {
@@ -385,6 +612,19 @@ async function cmdStart(args) {
     console.log(`Port ${preferred} busy; using ${port}`);
   }
 
+  // Bind address. Read from LLM_WIKI_HOST -> llm-wiki.config.json
+  // (server.host) -> loopback.
+  //
+  // Deliberately NOT reusing process.env.HOSTNAME: every container runtime
+  // (Docker, Kubernetes, most PaaS) injects HOSTNAME=<container id>, and Next
+  // falls back to process.env.HOSTNAME for its bind address. Passing that
+  // through makes the server try to bind to a hostname that doesn't resolve,
+  // which reads as a startup crash rather than an obvious config mistake.
+  // We overwrite HOSTNAME with the resolved bind address so both the CLI's
+  // -H flag and Next's env fallback agree.
+  const bindHost =
+    process.env["LLM_WIKI_HOST"] ?? RUNTIME_CONFIG?.server?.host ?? "127.0.0.1";
+
   // Production install: prefer the standalone server bundle.
   // Workspace dev: fall back to `next dev` from local node_modules.
   const standaloneServer = join(PACKAGE_DIR, ".next", "standalone", "apps", "web", "server.js");
@@ -400,6 +640,8 @@ async function cmdStart(args) {
       "dev",
       "-p",
       String(port),
+      "-H",
+      bindHost,
     ];
     mode = "dev";
   }
@@ -416,10 +658,17 @@ async function cmdStart(args) {
 
   const env = {
     ...process.env,
-    LLM_WIKI_PATH: wikiPath,
+    // Load .env.local ourselves. Next does this automatically for `next dev`,
+    // but this CLI spawns that process for global installs, and previously any
+    // key living in .env.local never reached the server.
+    ...loadDotEnv(join(PACKAGE_DIR, ".env.local")),
     PORT: String(port),
-    HOSTNAME: process.env["HOSTNAME"] ?? "127.0.0.1",
+    HOSTNAME: bindHost,
+    LLM_WIKI_HOST: bindHost,
   };
+  // Only override when explicitly requested — see comment above.
+  if (explicitFolder) env.LLM_WIKI_PATH = wikiPath;
+  if (process.env["LLM_WIKI_PRODUCT"]) env.LLM_WIKI_PRODUCT = process.env["LLM_WIKI_PRODUCT"];
 
   const child = spawn(cmd, cmdArgs, { cwd: PACKAGE_DIR, env, stdio: "inherit" });
 

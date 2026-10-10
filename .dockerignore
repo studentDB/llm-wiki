@@ -1,0 +1,53 @@
+# Keep the build context small: the image needs source only to install the
+# dependency tree, and it never needs generated or environment-specific files.
+
+# Dependencies / build output — rebuilt inside the image, never copied.
+node_modules/
+**/node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+dist-publish/
+*.tsbuildinfo
+
+# Secrets — mounted from the host, must never enter an image layer.
+# Patterns are **/ prefixed on purpose: in the server layout the source is one
+# level down (./app/apps/web/.env.local), so a root-anchored pattern would miss
+# it and the key would get baked into an image layer.
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Wiki content — mounted from the host volume. Copying it would both bloat the
+# image and risk shipping stale data over a newer volume.
+**/apps/web/wikis/
+
+# Tests / coverage
+coverage/
+.vitest-cache/
+
+# VCS, CI, editors
+.git/
+.github/
+.idea/
+.vscode/
+*.swp
+
+# OS / misc
+.DS_Store
+*.log
+
+# Local-only docs and scratch
+prdocs/
+ss/
+docs/15-publishing.md
+
+# --- server deploy root only (harmless in the dev repo) ----------------------
+# Persistent data: wiki content + global config. Mounted, never copied.
+data/
+# Rollback snapshots left behind by update.sh.
+app.bak.*/
+# Release archives — never part of the image.
+*.tgz
+.tmp-vitest/

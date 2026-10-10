@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTheme, type UiTheme } from "@/components/theme-provider";
@@ -16,6 +17,7 @@ type SettingsResponse = {
 
 export function GeneralTab() {
   const { theme, setTheme } = useTheme();
+  const { locale, setLocale, t } = useI18n();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
 
@@ -74,7 +76,7 @@ export function GeneralTab() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOriginal(topic);
-      setFlash("Saved.");
+      setFlash(t("settings.saved"));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -87,20 +89,23 @@ export function GeneralTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-medium">Wiki topic</h2>
+        <h2 className="text-lg font-medium">{t("settings.general.topic")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          A one-line description of <strong>this</strong> wiki&apos;s scope. The agent reads it
-          on every ingest and query, so be specific.
+          {locale === "zh-CN"
+            ? "一句话描述本知识库的范围。每次入库和问答都会读取它，请尽量具体。"
+            : "A one-line description of this wiki's scope. The agent reads it on every ingest and query, so be specific."}
         </p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g. Quantum computing research"
+            placeholder={
+              locale === "zh-CN" ? "例如：ConST326 智能压力校验仪" : "e.g. Quantum computing research"
+            }
             className="sm:flex-1"
           />
           <Button onClick={onSave} disabled={!dirty || busy}>
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("common.loading") : t("common.save")}
           </Button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -130,13 +135,11 @@ llm-wiki start ~/llm-wiki-machine-learning`}
       </div>
 
       <div>
-        <h2 className="text-lg font-medium">Approval gate for ingest</h2>
+        <h2 className="text-lg font-medium">{t("settings.general.requireApproval")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          When on, every ingest shows you the LLM&apos;s proposed changes
-          (new pages, page updates, contradictions) before anything is
-          written. You click Apply to commit. Useful when you don&apos;t
-          fully trust a cheap ingest model — or just want to see what the
-          LLM thinks before it edits your wiki.
+          {locale === "zh-CN"
+            ? "开启后，每次入库都会先展示 LLM 的修改提案（新增词条、更新、矛盾），你点确认后才会写入。"
+            : "When on, every ingest shows you the LLM's proposed changes before anything is written."}
         </p>
         <label className="mt-3 flex items-center gap-2">
           <input
@@ -147,12 +150,38 @@ llm-wiki start ~/llm-wiki-machine-learning`}
             className="h-4 w-4 rounded border-border"
           />
           <span className="text-sm">
-            Require approval before applying ingest changes
+            {t("settings.general.requireApproval")}
             {approvalSaving ? (
-              <span className="ml-2 text-xs text-muted-foreground">saving…</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {locale === "zh-CN" ? "保存中…" : "saving…"}
+              </span>
             ) : null}
           </span>
         </label>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-medium">{t("settings.general.language")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {t("settings.general.languageHint")}
+        </p>
+        <div className="mt-3 inline-flex rounded-md border border-border bg-secondary/40 p-1 text-sm">
+          {(["zh-CN", "en"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLocale(l)}
+              className={
+                "rounded px-3 py-1 " +
+                (locale === l
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              {l === "zh-CN" ? t("lang.zh") : t("lang.en")}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div>

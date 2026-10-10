@@ -10,50 +10,66 @@ import {
   SchemaValidationError,
   UnknownModelError,
 } from "./errors";
+import { providerBaseUrl, type ProviderName } from "./runtime-config";
 
 export type LlmClient = OpenAI;
 
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+// Endpoint resolution goes through runtime-config so values can come from
+// llm-wiki.config.json; env vars still win (applyEnvOverrides runs first).
+function baseUrlFor(provider: ProviderName): string | null {
+  const fromConfig = providerBaseUrl(provider);
+  if (fromConfig) {
+    // Normalise once, here, so every caller gets a usable URL regardless of
+    // whether the config value ends in /v1.
+    return normalizeBaseUrl(fromConfig);
+  }
+  throw new Error(
+    `${provider} provider has no baseUrl configured. Set it in llm-wiki.config.json (providers.${provider}.baseUrl) or via environment variable.`,
+  );
+}
 
-export function createClient(apiKey: string, provider?: "openrouter" | "ollama" | "custom" | "aliyun"): LlmClient {
+function normalizeBaseUrl(raw: string): string {
+  let url = raw.replace(/\/+$/, "");
+  // Accept a full completions endpoint (some private gateways publish it).
+  if (url.endsWith("/v1/chat/completions")) {
+    url = url.replace("/chat/completions", "");
+  }
+  if (!url.endsWith("/v1")) url = `${url}/v1`;
+  return url;
+}
+
+export function createClient(
+  apiKey: string,
+  provider?: ProviderName,
+): LlmClient {
   if (provider === "ollama") {
-    const rawBaseUrl = process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    const baseURL = rawBaseUrl.endsWith("/v1") ? rawBaseUrl : `${rawBaseUrl.replace(/\/$/, "")}/v1`;
     return new OpenAI({
       apiKey: "ollama",
-      baseURL,
+      baseURL: normalizeBaseUrl(providerBaseUrl("ollama") ?? "http://localhost:11434"),
     });
   }
 
   if (provider === "custom") {
-    let baseURL = process.env["CUSTOM_OPENAI_BASE_URL"];
-    if (!baseURL) {
-      throw new Error("CUSTOM_OPENAI_BASE_URL environment variable is required for custom provider");
-    }
-    // 兼容完整端点 URL（如 http://host:port/v1/chat/completions）
-    if (baseURL.includes("/v1/chat/completions")) {
-      baseURL = baseURL.replace("/chat/completions", "");
-    }
-    const finalBaseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL.replace(/\/$/, "")}/v1`;
     return new OpenAI({
+      // Key may legitimately be blank for private gateways.
       apiKey: apiKey || process.env["CUSTOM_OPENAI_API_KEY"] || "custom",
-      baseURL: finalBaseURL,
+      baseURL: baseUrlFor("custom"),
     });
   }
 
   if (provider === "aliyun") {
-    const baseURL = process.env["ALIYUN_BASE_URL"] || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-    const finalBaseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL.replace(/\/$/, "")}/v1`;
     return new OpenAI({
       apiKey: apiKey || process.env["ALIYUN_API_KEY"] || "",
-      baseURL: finalBaseURL,
+      baseURL: baseUrlFor("aliyun"),
     });
   }
 
-  if (!apiKey) throw new Error("createClient: apiKey is required");
+  // openrouter (or unspecified)
+  const key = apiKey || process.env["OPENROUTER_API_KEY"] || "";
+  if (!key) throw new Error("createClient: apiKey is required");
   return new OpenAI({
-    apiKey,
-    baseURL: OPENROUTER_BASE_URL,
+    apiKey: key,
+    baseURL: normalizeBaseUrl(providerBaseUrl("openrouter") ?? "https://openrouter.ai/api/v1"),
     defaultHeaders: {
       // OpenRouter attribution headers — visible to OpenRouter analytics
       // only; never include user content.
@@ -220,6 +236,25 @@ async function attemptOnce<T>(
   const userContent: string | UserContentPart[] =
     opts.userParts && opts.userParts.length > 0 ? opts.userParts : opts.user;
 
+  // --- Provider 探针与能力阻断 (ADR-002) ---
+  if (Array.isArray(userContent)) {
+    const hasFile = userContent.some((p) => p.type === "file");
+    if (hasFile) {
+      const isDeepSeekOrCustom = opts.model.toLowerCase().includes("deepseek") || 
+                                 (opts.client.baseURL && opts.client.baseURL.includes("custom"));
+      const isAliyunText = (opts.client.baseURL && opts.client.baseURL.includes("aliyuncs")) && 
+                           !opts.model.toLowerCase().includes("vl"); // 阿里云非 vl 模型
+                           
+      if (isDeepSeekOrCustom || isAliyunText) {
+        throw new LlmError(
+          `[WARN] Capability Mismatch: 当前配置的模型 (${opts.model}) 不支持多模态或文件读取。\n` +
+          `请更换为具有 Vision 或 File 能力的模型，或在客户端预先提取纯文本。`
+        );
+      }
+    }
+  }
+  // ------------------------------------------
+
   let response;
   try {
     response = await opts.client.chat.completions.create(
@@ -237,7 +272,7 @@ async function attemptOnce<T>(
       opts.signal ? { signal: opts.signal } : undefined,
     );
   } catch (err) {
-    throw mapSdkError(err, opts.model);
+    throw mapSdkError(err, opts.model, opts.client.baseURL);
   }
 
   // OpenRouter sometimes returns 200 OK with an error body (no `choices`,

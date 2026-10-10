@@ -1,0 +1,115 @@
+# LLM Wiki — container deployment
+#
+# Update workflow this file is built around:
+#
+#   1. Dev machine:  .\pack-for-deploy.ps1          -> llm-wiki-app.tgz
+#   2. Server:       ./update.sh llm-wiki-app.tgz   -> backup, unpack, restart
+#
+# Application code is NOT baked into the image. The ./app directory is bind
+# mounted over /app, so replacing files on the host and restarting the
+# container is a complete update. The image only carries the Node 20 runtime,
+# the warmed pnpm store, and node_modules compiled for this image's ABI.
+#
+# Full rationale + troubleshooting: docs/16-docker-deployment.md
+
+services:
+  wiki:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Where the source sits inside the build context.
+        #   app -> deploy-root layout (/srv/llm-wiki/app), the case here
+        #   .   -> dev repo root, if you build straight from the checkout
+        # See docs/16-docker-deployment.md section 1.1.
+        APP_SRC: app
+        # Uncomment if the build host can't reach fonts.googleapis.com
+        # (next/font/google is fetched at build time):
+        # HTTP_PROXY: http://proxy.example.com:8080
+        # HTTPS_PROXY: http://proxy.example.com:8080
+    image: llm-wiki:1.2.3
+    container_name: llm-wiki
+    restart: unless-stopped
+
+    # Next resolves .next/ and llm-wiki.config.json relative to the app dir.
+    working_dir: /app/apps/web
+
+    environment:
+      # --- bind address -----------------------------------------------------
+      # MUST be set. Docker injects HOSTNAME=<container id> automatically, and
+      # Next falls back to process.env.HOSTNAME when no -H flag is given, which
+      # would make the server try to bind to a hostname that doesn't resolve.
+      # Setting HOSTNAME here neutralises that injected value; LLM_WIKI_HOST is
+      # what the CLI/config layer reads. Both point at the same address so the
+      # -H flag and the env fallback can't disagree.
+      HOSTNAME: "0.0.0.0"
+      LLM_WIKI_HOST: "0.0.0.0"
+      PORT: "3737"
+
+      # --- config file discovery -------------------------------------------
+      # Absolute path so it resolves no matter where the process was launched.
+      LLM_WIKI_CONFIG: /app/apps/web/llm-wiki.config.json
+      # Relocates ~/.llm-wiki (activeWiki, recentWikis, file-fallback API key)
+      # into the mounted data volume so it survives container replacement.
+      LLM_WIKI_CONFIG_DIR: /data/llm-wiki-config
+
+      # --- runtime mode ------------------------------------------------------
+      # prod = `next build` + `next start` (default)
+      # dev  = `next dev`, no build step, compile on demand
+      WIKI_MODE: prod
+
+      # --- noise -------------------------------------------------------------
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NO_UPDATE_NOTIFIER: "1"
+
+    ports:
+      # Change the LEFT side only if 3737 is taken on the host; the right side
+      # must stay in sync with PORT above.
+      - "3737:3737"
+
+    volumes:
+      # Application source — the directory you overwrite when shipping updates.
+      - ./app:/app
+
+      # Persistent data (never touched by a code update).
+      - ./data/wikis:/app/apps/web/wikis
+      - ./data/config:/data/llm-wiki-config
+
+      # Native dependency isolation. These MUST be named volumes:
+      #   * their ABI is bound to the container's Node 20, so a host-provided
+      #     node_modules would be unusable;
+      #   * Docker seeds a fresh named volume from the image, so the first
+      #     start inherits the build-time install instead of re-downloading.
+      # One entry per workspace package that pnpm gives its own node_modules.
+      - nm_root:/app/node_modules
+      - nm_web:/app/apps/web/node_modules
+      - nm_core:/app/packages/core/node_modules
+      - nm_llm:/app/packages/llm/node_modules
+      - nm_ingestion:/app/packages/ingestion/node_modules
+
+      # Build output. Keeping it in a volume makes `next build` incremental
+      # across restarts instead of a full recompile every time.
+      - next_build:/app/apps/web/.next
+
+    healthcheck:
+      # node is always present in this image; curl/wget are not guaranteed.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3737/api/wikis/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      # `next build` runs in the entrypoint, so the first check must wait
+      # long enough for a cold build.
+      start_period: 120s
+
+volumes:
+  nm_root:
+  nm_web:
+  nm_core:
+  nm_llm:
+  nm_ingestion:
+  next_build:

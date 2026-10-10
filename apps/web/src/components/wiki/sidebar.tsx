@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useI18n } from "@/components/language-provider";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +24,19 @@ const TYPE_LABEL: Record<string, string> = {
   source: "Sources",
 };
 
+// Same list, localized values. Kept beside TYPE_LABEL because page `type`
+// values are persisted in front-matter and must stay English.
+const TYPE_LABEL_ZH: Record<string, string> = {
+  overview: "总览",
+  concept: "概念",
+  entity: "实体",
+  comparison: "对比",
+  source: "素材",
+};
+
 export function WikiSidebar() {
+  const { locale, t } = useI18n();
+  const typeLabel = locale === "zh-CN" ? TYPE_LABEL_ZH : TYPE_LABEL;
   const [pages, setPages] = useState<PageSummary[] | null>(null);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +86,7 @@ export function WikiSidebar() {
       <div className="px-4 pb-2 pt-4">
         <Input
           type="search"
-          placeholder="Filter pages…"
+          placeholder={t("wiki.searchPlaceholder")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="h-8 border-border/70 bg-background/60 text-ui"
@@ -89,22 +102,21 @@ export function WikiSidebar() {
           )}
         >
           <span className="font-mono text-[10px] text-primary">¶</span>
-          Wiki index
+          {t("wiki.index")}
         </Link>
 
         {error ? (
           <p className="px-3 text-caption text-destructive">{error}</p>
         ) : null}
         {!pages && !error ? (
-          <p className="px-3 text-caption text-muted-foreground">Loading…</p>
+          <p className="px-3 text-caption text-muted-foreground">{t("common.loading")}</p>
         ) : null}
         {pages && pages.length === 0 ? (
           <div className="mx-2 mt-2 rounded-md border border-dashed border-border/70 bg-background/40 px-3 py-3 text-caption text-muted-foreground">
-            No pages yet. Head to{" "}
+            {t("wiki.empty.body")}{" "}
             <Link href="/sources" className="text-foreground underline underline-offset-2">
-              Sources
-            </Link>{" "}
-            to add one.
+              {t("sources.title")}
+            </Link>
           </div>
         ) : null}
 
@@ -114,7 +126,7 @@ export function WikiSidebar() {
               return (
                 <section key={type} className="mb-3">
                   <h3 className="mt-3 px-3 pb-1 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
-                    {TYPE_LABEL[type] ?? type}
+                    {typeLabel[type] ?? type}
                   </h3>
                   <ul>
                     {items.map((p) => (

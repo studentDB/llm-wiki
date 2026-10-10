@@ -2,6 +2,15 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// Imported via the package's `./runtime-config` subpath rather than its
+// barrel: the barrel re-exports client.ts, which pulls in the OpenAI SDK —
+// ~7s of module-eval cost that landed on core's test hooks.
+import {
+  MODEL_SLOT_NAMES,
+  getRuntimeConfig,
+  type ModelSlotName,
+} from "@llm-wiki/llm/runtime-config";
+
 import { WIKI_PATHS } from "./wiki";
 
 // ---- Global config (~/.llm-wiki/config.json) ------------------------------
@@ -218,6 +227,16 @@ function slotConfig(model: string, provider: ModelProvider = "openrouter"): Mode
   return { provider, model };
 }
 
+export function wikiSettingsPath(wikiPath: string): string {
+  return join(wikiPath, WIKI_PATHS.tooling, "settings.json");
+}
+
+/**
+ * Built-in fallback values. Used only when no `llm-wiki.config.json` is
+ * discoverable — see `resolveDefaultWikiSettings()` for the effective defaults.
+ * Kept as a plain object so existing imports (and tests comparing against it)
+ * keep working.
+ */
 export const DEFAULT_WIKI_SETTINGS: WikiSettings = {
   version: 1,
   topic: "",
@@ -233,8 +252,27 @@ export const DEFAULT_WIKI_SETTINGS: WikiSettings = {
   requireApprovalForIngest: false,
 };
 
-export function wikiSettingsPath(wikiPath: string): string {
-  return join(wikiPath, WIKI_PATHS.tooling, "settings.json");
+/**
+ * The defaults a brand-new wiki should start from, sourced from the runtime
+ * config file when present. This is what makes an unattended deployment work:
+ * drop in `llm-wiki.config.json` and every new wiki inherits its model slots
+ * and feature flags without anyone touching the Settings UI.
+ */
+export function resolveDefaultWikiSettings(): WikiSettings {
+  const cfg = getRuntimeConfig();
+  const models = {} as WikiSettings["defaultModels"];
+  for (const slot of MODEL_SLOT_NAMES) {
+    const configured = cfg.defaults.models[slot as ModelSlotName];
+    models[slot] = { provider: configured.provider, model: configured.model };
+  }
+  return {
+    version: 1,
+    topic: "",
+    defaultModels: models,
+    autoLintAfterIngest: cfg.defaults.autoLintAfterIngest,
+    showCostEstimates: cfg.defaults.showCostEstimates,
+    requireApprovalForIngest: cfg.defaults.requireApprovalForIngest,
+  };
 }
 
 function parseWikiSettings(raw: unknown): WikiSettings {
@@ -242,9 +280,12 @@ function parseWikiSettings(raw: unknown): WikiSettings {
     throw new Error("wiki settings: expected a JSON object");
   }
   const data = raw as Record<string, unknown>;
+  // Base comes from the runtime config so unattended deployments inherit their
+  // configured model slots even for wikis whose settings.json predates them.
+  const fallback = resolveDefaultWikiSettings();
   const out: WikiSettings = {
-    ...DEFAULT_WIKI_SETTINGS,
-    defaultModels: { ...DEFAULT_WIKI_SETTINGS.defaultModels },
+    ...fallback,
+    defaultModels: { ...fallback.defaultModels },
   };
 
   if (typeof data["topic"] === "string") out.topic = data["topic"];
@@ -263,19 +304,23 @@ function parseWikiSettings(raw: unknown): WikiSettings {
     for (const slot of ["ingest", "query", "chat", "lint", "vision"] as const) {
       const raw = m[slot];
       if (typeof raw === "string" && raw.length > 0) {
-        // Backward-compat: old format stored a plain model string.
-        // Migrate to the new { provider, model } shape, defaulting to openrouter.
-        out.defaultModels[slot] = { provider: "openrouter", model: raw };
+        // Backward-compat: old format stored a plain model string. Keep this
+        // slot's configured provider rather than assuming openrouter — hard-
+        // coding it here used to override the deployment's provider (e.g. a
+        // vision slot pointed at aliyun silently became openrouter).
+        out.defaultModels[slot] = { provider: out.defaultModels[slot].provider, model: raw };
       } else if (typeof raw === "object" && raw !== null) {
         const entry = raw as Record<string, unknown>;
         const model = typeof entry["model"] === "string" && entry["model"].length > 0
           ? entry["model"]
           : out.defaultModels[slot].model;
         const rawProvider = entry["provider"];
+        // Missing/unknown provider likewise inherits this slot's configured
+        // default instead of silently switching to openrouter.
         const provider: ModelProvider =
           typeof rawProvider === "string" && VALID_PROVIDERS.includes(rawProvider as ModelProvider)
             ? (rawProvider as ModelProvider)
-            : "openrouter";
+            : out.defaultModels[slot].provider;
         out.defaultModels[slot] = { provider, model };
       }
     }
@@ -290,10 +335,9 @@ export async function loadWikiSettings(wikiPath: string): Promise<WikiSettings> 
     raw = await readFile(path, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return {
-        ...DEFAULT_WIKI_SETTINGS,
-        defaultModels: { ...DEFAULT_WIKI_SETTINGS.defaultModels },
-      };
+      // No settings.json yet — hand back config-derived defaults so a freshly
+      // deployed wiki is immediately usable (and already correctly configured).
+      return resolveDefaultWikiSettings();
     }
     throw err;
   }

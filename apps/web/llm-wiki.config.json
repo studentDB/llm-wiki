@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "server": {
+    "port": 3737,
+    "host": "127.0.0.1",
+    "logQueryPrompt": true
+  },
+  "wiki": {
+    "baseDir": "wikis",
+    "defaultProduct": "ConST326",
+    "products": {
+      "ConST326": { "topic": "ConST326 智能压力校验仪" },
+      "ConST560": { "topic": "ConST560 智能设备通讯器" },
+      "ConST810": { "topic": "ConST810" },
+      "ConST860": { "topic": "ConST850/860/870 过程校验仪" }
+    }
+  },
+  "providers": {
+    "custom": { "baseUrl": "http://llm.const.cc/v1" },
+    "aliyun": { "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    "ollama": { "baseUrl": "http://localhost:11434" },
+    "openrouter": { "baseUrl": "https://openrouter.ai/api/v1" }
+  },
+  "defaults": {
+    "models": {
+      "ingest": { "provider": "custom", "model": "DeepSeek-V4-Flash-0731" },
+      "query": { "provider": "aliyun", "model": "qwen-plus" },
+      "chat": { "provider": "aliyun", "model": "qwen-plus" },
+      "lint": { "provider": "aliyun", "model": "qwen-plus" },
+      "vision": { "provider": "aliyun", "model": "qwen3-vl-plus" }
+    },
+    "autoLintAfterIngest": false,
+    "showCostEstimates": true,
+    "requireApprovalForIngest": false
+  },
+  "ingestRouting": {
+    "pdf": "vision",
+    "image": "vision",
+    "docx": "ingest",
+    "xlsx": "ingest",
+    "pptx": "ingest",
+    "html": "ingest",
+    "md": "ingest",
+    "txt": "ingest",
+    "url": "ingest"
+  },
+  "ui": {
+    "language": "zh-CN",
+    "theme": "auto"
+  }
+}

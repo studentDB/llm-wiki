@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 
 import { NextResponse } from "next/server";
 
+import { fallbackWikiPath } from "@/lib/server-wiki";
+
 import {
   initWikiFolder,
   loadGlobalConfig,
@@ -15,7 +17,7 @@ import {
   getSchemaTemplate,
   SCHEMA_TEMPLATES,
   WIKI_PATHS,
-  DEFAULT_WIKI_SETTINGS,
+  resolveDefaultWikiSettings,
   type SchemaTemplateId,
 } from "@llm-wiki/core";
 
@@ -53,7 +55,7 @@ async function enrichWiki(p: string): Promise<WikiDetail> {
 // has never been "switched to," so it wouldn't be in the list otherwise.
 export async function GET() {
   const cfg = await loadGlobalConfig();
-  const activePath = cfg.activeWiki ?? defaultWikiPath();
+  const activePath = cfg.activeWiki ?? fallbackWikiPath();
   const [active, recents] = await Promise.all([
     enrichWiki(activePath),
     Promise.all(cfg.recentWikis.map(enrichWiki)),
@@ -178,7 +180,7 @@ async function handleCreate(body: CreateBody): Promise<Response> {
   // operation one.
   const existing = await loadWikiSettings(path);
   await saveWikiSettings(path, {
-    ...DEFAULT_WIKI_SETTINGS,
+    ...resolveDefaultWikiSettings(),
     ...existing,
     topic,
   });
@@ -204,7 +206,7 @@ async function handleRemove(body: RemoveBody): Promise<Response> {
   const next = await removeRecentWiki(path);
   return NextResponse.json({
     ok: true,
-    active: next.activeWiki ?? defaultWikiPath(),
+    active: next.activeWiki ?? fallbackWikiPath(),
   });
 }
 
@@ -222,6 +224,3 @@ function validatePath(raw: unknown): string | null {
   return absolute;
 }
 
-function defaultWikiPath(): string {
-  return join(homedir(), "llm-wiki-default");
-}

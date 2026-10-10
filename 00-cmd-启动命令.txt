@@ -1,21 +1,41 @@
-cd E:\CodeRepository\CodeTest\llm-wiki
-
-:: 设置 wiki 数据路径
-set "LLM_WIKI_PATH=E:\WorkProgram\04AI文档\01-Demo\03-AIDocumentV3-ds\llm-wiki-poc"
-
-
-:: 私有化 DeepSeek（已有）
-set "CUSTOM_OPENAI_BASE_URL=http://172.16.1.2:30001/v1/chat/completions"
-set "CUSTOM_OPENAI_API_KEY=sk-95156949095ee0a6c14e2eee931e4d856"
-
-
-
-:: 阿里云 DashScope（新增）
-set "ALIYUN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1"
-set "ALIYUN_API_KEY=sk-59cf7ba718bf4920a5dab90e7213bd69"
-
-::在控制台输出Query的提示词日志
-set LLM_WIKI_LOG_QUERY_PROMPT=1
-
-:: 启动
-pnpm dev
+:: ===========================================================================
+:: LLM Wiki 启动说明（配置已固化，无需再在命令行里敲环境变量）
+:: ===========================================================================
+::
+:: 【推荐】一键启动
+::   在本仓库根目录执行：  .\start-my-wiki.ps1
+::   或用 CLI：           cd apps\web  &&  node .\bin\llm-wiki.mjs start
+::
+:: 【配置放在两个文件里】
+::   apps\web\llm-wiki.config.json   —— 非敏感配置，可入库、可随发布包走
+::       server.port / server.logQueryPrompt
+::       wiki.baseDir / wiki.defaultProduct / wiki.products.<产品>.topic
+::       providers.<custom|aliyun|ollama|openrouter>.baseUrl
+::       defaults.models.<ingest|query|chat|lint|vision>
+::       ingestRouting（格式 -> 模型槽）
+::       ui.language / ui.theme
+::
+::   apps\web\.env.local             —— 密钥，已被 .gitignore 忽略，禁止入库
+::       CUSTOM_OPENAI_API_KEY / ALIYUN_API_KEY / OPENROUTER_API_KEY
+::
+:: 【优先级】环境变量  >  配置文件  >  内置默认值
+::   临时覆盖示例（不改文件）：
+::     set LLM_WIKI_PRODUCT=ConST860
+::     set LLM_WIKI_MODEL_VISION=qwen-vl-max
+::     set LLM_WIKI_PORT=3800
+::
+:: 【新环境初始化】（线上空 wiki 场景，无需 UI、无需改配置）
+::   node .\bin\llm-wiki.mjs init --product ConST326 --topic "ConST326 智能压力校验仪"
+::   或调用接口：
+::     curl -X POST http://localhost:3737/api/wikis/init ^
+::          -H "content-type: application/json" ^
+::          -d "{\"product\":\"ConST326\"}"
+::
+:: 【灌库时按文件类型自动分流】
+::   pdf / 图片   -> vision 槽（默认阿里云 qwen3-vl-plus）
+::   docx/xlsx/pptx/html/md/txt -> ingest 槽（默认移动云 DeepSeek-V4-Flash-0731）
+::   注意：阿里云 compatible-mode 不支持 OpenRouter 的 type:"file" 契约，
+::         PDF 直传会报 400；请先渲染成 PNG 再上传（走 image_url 通道）。
+::
+:: 【体检】
+::   node .\bin\llm-wiki.mjs doctor

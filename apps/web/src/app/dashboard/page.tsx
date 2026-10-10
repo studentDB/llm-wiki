@@ -1,5 +1,4 @@
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import Link from "next/link";
@@ -17,7 +16,7 @@ import {
 
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { SwitchWikiButton } from "@/components/dashboard/switch-wiki-button";
-import { requireSetup } from "@/lib/server-wiki";
+import { fallbackWikiPath, requireSetup } from "@/lib/server-wiki";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +33,6 @@ type WikiHealth = {
   lastTouchedMs: number | null;
 };
 
-function defaultWikiPath(): string {
-  return join(homedir(), "llm-wiki-default");
-}
 
 async function gatherHealth(path: string, isActive: boolean): Promise<WikiHealth> {
   let exists = false;
@@ -120,7 +116,7 @@ export default async function DashboardPage() {
   await requireSetup();
 
   const cfg = await loadGlobalConfig();
-  const activePath = cfg.activeWiki ?? defaultWikiPath();
+  const activePath = cfg.activeWiki ?? fallbackWikiPath();
   const all = Array.from(new Set([activePath, ...cfg.recentWikis]));
   const wikis = await Promise.all(all.map((p) => gatherHealth(p, p === activePath)));
   wikis.sort((a, b) => (b.lastTouchedMs ?? 0) - (a.lastTouchedMs ?? 0));

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CostPreview } from "@/components/cost-preview";
+import { useI18n } from "@/components/language-provider";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,6 +40,7 @@ const CONFIDENCE_STYLES: Record<QueryResponse["confidence"], string> = {
 };
 
 export function QueryView() {
+  const { t } = useI18n();
   const [question, setQuestion] = useState("");
   const [knownSlugs, setKnownSlugs] = useState<string[]>([]);
   const settings = useWikiSettings();
@@ -121,8 +123,8 @@ export function QueryView() {
     <PageContainer>
       <PageHeader
         eyebrow="One-off question"
-        title="Query"
-        description="Ask the wiki and get a cited answer. Useful for one-shot lookups; for ongoing back-and-forth use Chats."
+        title={t("query.title")}
+        description={t("query.headDescription")}
       />
 
       <form onSubmit={onAsk} className="space-y-3">
@@ -132,7 +134,7 @@ export function QueryView() {
         <Textarea
           id="question"
           rows={3}
-          placeholder="e.g. How does Shor's algorithm relate to RSA?"
+          placeholder={t("query.placeholder")}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           disabled={busy}
@@ -146,7 +148,7 @@ export function QueryView() {
         />
         <div className="flex items-center gap-2">
           <Button type="submit" disabled={!question.trim() || busy}>
-            {busy ? "Asking…" : "Ask"}
+            {busy ? t("query.asking") : t("query.ask")}
           </Button>
           <p className="text-xs text-muted-foreground">
             Cmd/Ctrl + Enter to submit · uses settings → models → query

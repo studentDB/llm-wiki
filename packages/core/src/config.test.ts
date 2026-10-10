@@ -217,14 +217,33 @@ describe("wiki settings", () => {
     expect(s.showCostEstimates).toBe(DEFAULT_WIKI_SETTINGS.showCostEstimates);
   });
 
-  it("migrates legacy plain-string model slot to { provider: 'openrouter', model } shape", async () => {
+  it("migrates a legacy plain-string model slot keeping the slot's configured provider", async () => {
+    // Was hard-coded to openrouter, which silently dragged every migrated slot
+    // onto a provider the deployment never configured. The provider now comes
+    // from the same place every other unconfigured field does.
     await writeFile(
       wikiSettingsPath(wikiPath),
       JSON.stringify({ defaultModels: { ingest: "openai/gpt-4o-mini" } }),
       "utf8",
     );
     const s = await loadWikiSettings(wikiPath);
-    expect(s.defaultModels.ingest).toEqual({ provider: "openrouter", model: "openai/gpt-4o-mini" });
+    expect(s.defaultModels.ingest).toEqual({
+      provider: DEFAULT_WIKI_SETTINGS.defaultModels.ingest.provider,
+      model: "openai/gpt-4o-mini",
+    });
+  });
+
+  it("inherits the configured provider when the stored one is unknown", async () => {
+    await writeFile(
+      wikiSettingsPath(wikiPath),
+      JSON.stringify({ defaultModels: { vision: { provider: "bogus-provider", model: "qwen3-vl-plus" } } }),
+      "utf8",
+    );
+    const s = await loadWikiSettings(wikiPath);
+    expect(s.defaultModels.vision.provider).toBe(
+      DEFAULT_WIKI_SETTINGS.defaultModels.vision.provider,
+    );
+    expect(s.defaultModels.vision.model).toBe("qwen3-vl-plus");
   });
 
   it("writes to .llm-wiki/settings.json inside the wiki folder", async () => {

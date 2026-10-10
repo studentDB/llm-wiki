@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { redirect } from "next/navigation";
+import { NextResponse } from "next/server";
 
 import {
   backfillUsageCosts,
@@ -20,6 +21,19 @@ import {
   type Db,
   type WikiSettings,
 } from "@llm-wiki/core";
+import {
+  getRuntimeConfig,
+  isKnownProduct,
+  knownProducts,
+  resolveProductWikiDir,
+} from "@llm-wiki/llm";
+
+import {
+  WikiRoutingError,
+  describeRoutingError,
+  selectWikiTarget,
+  type WikiRoutingDeps,
+} from "./wiki-routing";
 
 // Throttle the trash purge so we don't crawl the trash dir on every API call.
 // One purge per process per hour is plenty for V1.
@@ -37,34 +51,41 @@ import { headers } from "next/headers";
 /**
  * Resolution order (docs/13-multi-wiki.md):
  * 0. `X-Wiki-Product` HTTP header — for stateless multi-tenant API routing.
+ *    When the runtime config declares `wiki.products`, the value is checked
+ *    against that allow-list first so a typo can't silently mint an empty wiki.
  * 1. `LLM_WIKI_PATH` env var — explicit override, wins. Useful for CI,
  *    scripting, and the CLI's `start <folder>` form.
- * 2. `activeWiki` in `~/.llm-wiki/config.json` — set by Settings → Wikis
- *    picker. The canonical user-facing mechanism for switching wikis
- *    without a server restart.
- * 3. `~/llm-wiki-default` — first-run fallback so the app boots usefully
+ * 2. `activeWiki` in `~/.llm-wiki/config.json` — set by the WikiSwitcher /
+ *    Settings → Wikis picker. An explicit choice the user made at runtime,
+ *    so it outranks the deployment default. (It used to sit BELOW
+ *    `defaultProduct`, which made the switcher visually switch while every
+ *    page kept rendering the pinned default — the ConST560/ConST326 bug.)
+ * 3. `defaultProduct` in `llm-wiki.config.json` — the deployment's pinned
+ *    fallback, ships with the artifact so a one-click launch lands somewhere
+ *    useful even before the user has picked anything.
+ * 4. `~/llm-wiki-default` — first-run fallback so the app boots usefully
  *    before the user has named a wiki.
  *
  * Sync read of the config file because this runs inside server-component
  * render paths and we don't want to make every page async on a tiny,
  * OS-cached JSON file. Failures fall through to the default silently.
  */
-export function resolveWikiPath(): string {
-  try {
-    const reqHeaders = headers();
-    const product = reqHeaders.get("x-wiki-product");
-    if (product) {
-      // Create a centralized 'wikis' directory in the project root or specified base path
-      const baseDir = process.env["LLM_WIKI_BASE_DIR"] || join(process.cwd(), "wikis");
-      return join(baseDir, product);
-    }
-  } catch (e) {
-    // headers() throws if called outside a Next.js request context (e.g. in CLI or non-request async functions)
-    // We safely ignore this and fall through to the other resolution methods.
-  }
+/**
+ * The actual decision tree lives in `./wiki-routing.ts` as a pure function so
+ * it can be unit tested without mocking Next.js. This only wires real IO into
+ * it. See `wiki-routing.test.ts` for the pinned ordering.
+ */
+function routingDeps(): WikiRoutingDeps {
+  return {
+    defaultProduct: getRuntimeConfig().wiki.defaultProduct,
+    isKnownProduct,
+    productDir: resolveProductWikiDir,
+    homeFallback: join(homedir(), "llm-wiki-default"),
+  };
+}
 
-  const fromEnv = process.env["LLM_WIKI_PATH"];
-  if (fromEnv) return fromEnv;
+/** Active wiki recorded by the picker, or null. Sync read; see note above. */
+function readActiveWiki(): string | null {
   try {
     const raw = readFileSync(globalConfigPath(), "utf8");
     const parsed = JSON.parse(raw) as { activeWiki?: unknown };
@@ -74,7 +95,89 @@ export function resolveWikiPath(): string {
   } catch {
     // ENOENT (no config yet) or malformed JSON — fall through to default.
   }
-  return join(homedir(), "llm-wiki-default");
+  return null;
+}
+
+export function resolveWikiPath(): string {
+  // Only headers() is guarded: it throws outside a Next.js request context
+  // (CLI, non-request async work). Product resolution deliberately sits OUTSIDE
+  // this try — it used to be inside, which silently swallowed the allow-list
+  // error and fell through to the default wiki instead of reporting a typo.
+  let product: string | null = null;
+  try {
+    product = headers().get("x-wiki-product");
+  } catch {
+    // Not in a request scope — fall through to env/config resolution.
+  }
+
+  try {
+    return selectWikiTarget(
+      {
+        headerProduct: product,
+        envPath: process.env["LLM_WIKI_PATH"] ?? null,
+        activeWiki: readActiveWiki(),
+      },
+      routingDeps(),
+    ).path;
+  } catch (err) {
+    // Translate the pure routing error into the HTTP-facing one, keeping the
+    // actionable allow-list message.
+    if (err instanceof WikiRoutingError) {
+      throw new WikiProductError(describeRoutingError(err, knownProducts));
+    }
+    throw err;
+  }
+}
+
+/**
+ * What "no wiki selected" means, shared by the wikis list / dashboard so their
+ * notion of the default matches `resolveWikiPath()`: the deployment-pinned
+ * `defaultProduct` if configured, else the first-run folder.
+ */
+export function fallbackWikiPath(): string {
+  return selectWikiTarget(
+    { headerProduct: null, envPath: null, activeWiki: null },
+    routingDeps(),
+  ).path;
+}
+
+/**
+ * Maps a product name to its wiki directory using the configured `baseDir`
+ * (resolved relative to the config file, so the artifact stays portable).
+ * Throws when the product isn't in the configured allow-list — that guard is
+ * what stops a stray `X-Wiki-Product: Const326` from creating junk.
+ */
+export function resolveProductPathOrThrow(product: string): string {
+  if (!isKnownProduct(product)) {
+    const known = (knownProducts() ?? []).join(", ");
+    throw new WikiProductError(
+      `Unknown wiki product "${product}". Known products (from llm-wiki.config.json → wiki.products): ${known || "(none declared)"}. Add it to the config or remove the X-Wiki-Product header.`,
+    );
+  }
+  return resolveProductWikiDir(product);
+}
+
+export class WikiProductError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WikiProductError";
+  }
+}
+
+/**
+ * Routes call this right after `resolveWikiPath()` / `openWikiContext()` so a
+ * mistyped `X-Wiki-Product` surfaces as an actionable 400 instead of a 500
+ * stack trace. Returns null for anything that isn't a product error, so it
+ * composes with the caller's existing error handling.
+ */
+export function wikiProductErrorResponse(err: unknown): NextResponse | null {
+  if (err instanceof WikiProductError) {
+    return NextResponse.json(
+      { ok: false, error: err.message, code: "UNKNOWN_WIKI_PRODUCT" },
+      { status: 400 },
+    );
+  }
+  return null;
 }
 
 export type WikiContext = {

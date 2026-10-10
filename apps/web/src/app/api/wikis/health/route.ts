@@ -1,8 +1,9 @@
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { NextResponse } from "next/server";
+
+import { fallbackWikiPath } from "@/lib/server-wiki";
 
 import {
   getTotalCostCents,
@@ -33,9 +34,6 @@ type WikiHealth = {
   lastTouchedMs: number | null;
 };
 
-function defaultWikiPath(): string {
-  return join(homedir(), "llm-wiki-default");
-}
 
 async function gatherHealth(path: string, isActive: boolean): Promise<WikiHealth> {
   const base: Omit<WikiHealth, "topic" | "initialized" | "pageCount" | "sourceCount" | "chatCount" | "costCents" | "lastTouchedMs"> = {
@@ -129,7 +127,7 @@ async function gatherHealth(path: string, isActive: boolean): Promise<WikiHealth
 // surface first.
 export async function GET() {
   const cfg = await loadGlobalConfig();
-  const activePath = cfg.activeWiki ?? defaultWikiPath();
+  const activePath = cfg.activeWiki ?? fallbackWikiPath();
   // Dedupe — active wiki is often also in recents.
   const all = Array.from(new Set([activePath, ...cfg.recentWikis]));
   const wikis = await Promise.all(all.map((p) => gatherHealth(p, p === activePath)));

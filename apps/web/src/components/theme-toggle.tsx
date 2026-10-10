@@ -21,7 +21,7 @@ const LABEL: Record<UiTheme, string> = {
 // the server can't see. To avoid a server/client SVG-path mismatch, we render
 // a sized placeholder until the component mounts client-side, then swap in
 // the real icon. The actual `dark` class on <html> is set synchronously by
-// THEME_INIT_SCRIPT in <head> so there's no visual flash.
+// themeInitScript() (from @/lib/theme-script) in <head> so there's no flash.
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
