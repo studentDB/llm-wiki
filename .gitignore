@@ -45,3 +45,9 @@ docs/15-publishing.md
 
 # Ignore dynamically generated product wikis
 apps/web/wikis/
+
+# Deployment output (pack-for-deploy.ps1) — build artifacts, never tracked.
+# The archive must not ship inside itself, and pack-then-commit would bloat
+# the repo by ~2 MB per release.
+release/
+*.tgz
