@@ -1,7 +1,8 @@
 # 16 · Docker 部署
 
 > 目标：把 LLM Wiki 跑在容器里，且**后续更新不需要在服务器上构建镜像**。
-> 更新动作固定为三步：**打包 → 覆盖宿主机 `./app` → 重建容器**。
+> 更新动作固定为两步：**直接把源码文件覆盖到宿主机 `./app`（FTP/SCP/git pull 都行）→ 重启容器**。
+> 不打包、不解压。
 >
 > **要操作步骤（照抄命令就行），请看仓库根目录的 `DEPLOY.md`**。
 > 本文件讲**为什么这么设计**。
@@ -14,7 +15,7 @@
 | --- | --- |
 | 镜像里放什么？ | **只放运行时**（Node 20 + pnpm + 预热好的 pnpm store + 编译好的 `node_modules`），**不放业务代码** |
 | 代码从哪来？ | 宿主机 `./app` **bind mount** 覆盖容器内 `/app` |
-| 怎么更新？ | 开发机打包 → 上传 → `./update.sh xxx.tgz`（自动备份、解压、`restart`、打日志） |
+| 怎么更新？ | 源码文件直接覆盖宿主机 `./app` → `docker compose restart wiki` |
 | 数据会丢吗？ | 不会。`wikis/` 与全局配置都在宿主机 `./data/` 下 |
 | 依赖要重装吗？ | 不用。`node_modules` 在命名卷里，重建容器时 `pnpm install` 是 no-op（除非 lockfile 变了） |
 
@@ -26,12 +27,11 @@
 
 ```
 /srv/llm-wiki/
-├── llm-wiki-app.tgz          # 每次更新时替换它
 ├── docker-compose.yml        # 传一次，之后基本不动
-├── update.sh                 # 传一次，之后基本不动
-├── app/                      # ← 每次更新就是整体替换这里
-│   ├── Dockerfile            # 随代码包发布
-│   ├── .dockerignore         # 随代码包发布
+├── app/                      # ← 每次更新就是覆盖这里
+│   ├── Dockerfile            # 随代码一起传
+│   ├── docker-entrypoint.sh  # 随代码一起传
+│   ├── .dockerignore         # 随代码一起传
 │   ├── apps/web/
 │   ├── packages/
 │   ├── package.json
@@ -42,14 +42,15 @@
     └── config/               # ~/.llm-wiki 的替代位置（activeWiki、密钥兜底）
 ```
 
-> ⚠️ `docker-compose.yml` 和 `update.sh` **必须放在 `/srv/llm-wiki/` 根目录，不能放进 `./app`**。
-> `update.sh` 会整体搬走 `./app`，脚本住在里面会把自己一起删掉。
+> ⚠️ `docker-compose.yml` **必须放在 `/srv/llm-wiki/` 根目录，不能放进 `./app`**——否则它会被当成业务代码混在源码里。
+>
+> ⚠️ 反过来，`Dockerfile` / `docker-entrypoint.sh` / `.dockerignore` **必须随代码一起住在 `./app` 里**，因为 compose 的构建上下文就是 `./app`。这样工具与代码永远同源，不存在"版本对不上"。
 
-> `apps/web/.env.local` **不进发布包**，由运维在 `./app/apps/web/.env.local` 单独维护；`update.sh` 在覆盖前会自动从备份里把它带回来。
+> `apps/web/.env.local` **不随代码传**，由运维在 `./app/apps/web/.env.local` 单独维护（建议直接在服务器上用 nano 建，避免 Windows 换行符混入密钥值）。
 
 ### 1.1 目录层级与 `ARG APP_SRC`
 
-`Dockerfile` 和 `.dockerignore` **随代码包走**（它们都是 git 已跟踪文件，会被打进 `app/`），所以**不存在"工具包版本和代码版本不一致"的问题**。只有 `docker-compose.yml` 和 `update.sh` 必须留在外面——`update.sh` 会整体搬走 `./app`，住里面会被自己删掉。
+`Dockerfile`、`docker-entrypoint.sh`、`.dockerignore` 与代码同源（都在 `./app` 里），所以**不存在"工具版本和代码版本不一致"的问题**；只有 `docker-compose.yml` 留在外面，因为它描述的是"如何运行 `./app`"，不属于源码。
 
 构建上下文（build context）始终是**源码根目录本身**：
 
@@ -67,19 +68,18 @@
 ## 2. 首次部署
 
 ```bash
-# 1) 建部署目录，把 release/ 里的 3 个文件上传进来
-mkdir -p /srv/llm-wiki && cd /srv/llm-wiki
-#    /srv/llm-wiki/llm-wiki-app.tgz
+# 1) 建部署目录，把源码文件传进来（FTP/SCP，见 DEPLOY.md 的上传清单）
+mkdir -p /srv/llm-wiki/app && cd /srv/llm-wiki
 #    /srv/llm-wiki/docker-compose.yml
-#    /srv/llm-wiki/update.sh
+#    /srv/llm-wiki/app/{apps,packages,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,
+#                       Dockerfile,docker-entrypoint.sh,.dockerignore}
 
-# 2) 密钥（不进代码包，手工维护）
+# 2) 密钥（不随代码传，手工在服务器上建）
 mkdir -p app/apps/web
-cp /path/to/your/.env.local app/apps/web/.env.local
+nano app/apps/web/.env.local
 
-# 3) 一条命令搞定：备份 → 解压 → 构建镜像 → 启动
-chmod +x update.sh          # git 不保留执行位，首次需要手动加
-./update.sh ./llm-wiki-app.tgz
+# 3) 构建镜像并启动
+docker compose up -d --build
 
 # 4) 看日志
 docker compose logs -f wiki
@@ -92,36 +92,27 @@ docker compose logs -f wiki
 
 ## 3. 日常更新（核心诉求）
 
-**开发机（Windows，PowerShell）：**
-
-```powershell
-cd E:\CodeRepository\CodeTest\llm-wiki
-git add -A && git commit -m "..."     # 先提交：打包用的是 git 已跟踪文件
-.\pack-for-deploy.ps1                 # 产出 llm-wiki-app.tgz
-```
+**开发机（Windows）：** 把源码文件用 FTP 覆盖到服务器 `./app`（不用 commit、不用打包）。
 
 **服务器：**
 
 ```bash
 cd /srv/llm-wiki
-./update.sh /path/to/llm-wiki-app.tgz
+docker compose restart wiki
 ```
 
-`update.sh` 内部依次做：备份 `./app` → `app.bak.<时间戳>` → 解压覆盖 → 从备份续回 `.env.local` → `docker compose up -d --force-recreate wiki` → 打印日志与回滚命令。
+因为 `node_modules` 与 `.next` 都在**命名卷**里，这一步是**增量**的：依赖没变就不装，代码增量编译，通常几十秒。
 
-> 这里必须是 `--force-recreate` 而不是 `restart`：备份用的是 `mv`，`./app` 已经是**另一个 inode** 的新目录，部分 Docker 版本下 `restart` 会复用原容器的挂载命名空间继续读旧树，表现为"更新没生效"。
+> 这里用 `restart` 就够（不是整目录替换，inode 没变）。改了 `docker-compose.yml` 本身时才需要
+> `docker compose up -d --force-recreate wiki`。
 
-因为 `node_modules` 与 `.next` 都在**命名卷**里，这一步是**增量**的：依赖没变就不装，代码增量编译。
-
-**回滚**（脚本结尾会打印，把 `<TS>` 换成实际时间戳）：
+**回滚**（覆盖前先留个副本就有退路）：
 
 ```bash
 cd /srv/llm-wiki
 rm -rf app && mv app.bak.<TS> app
-docker compose up -d --force-recreate wiki
+docker compose restart wiki
 ```
-
-> 用 `--force-recreate` 而不是 `stop`/`start`：回滚同样是整目录替换，必须让 Docker 重新解析 bind 源，否则新容器可能继续挂旧的（已被 `mv` 走的）inode。
 
 ---
 
@@ -172,7 +163,7 @@ compose 里仍然显式写了 `HOSTNAME: "0.0.0.0"` 作为二次保险（因为 
 
 ### 坑 2：原生模块 ABI
 
-见 4.1。**不要把宿主机的 `node_modules` 打进发布包**，`pack-for-deploy.ps1` 已排除。
+见 4.1。**不要把宿主机的 `node_modules` 传到 `./app`**（`DEPLOY.md` 的上传清单里已列为禁传项）；五个 `node_modules` 路径都被命名卷遮住了，即使传上去也进不了容器，只会白白占磁盘。
 
 ### 坑 3：容器端口漂移会导致映射失效
 

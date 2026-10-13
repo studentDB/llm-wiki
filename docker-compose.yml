@@ -1,9 +1,10 @@
 # LLM Wiki — container deployment
 #
-# Update workflow this file is built around:
+# Update workflow this file is built around — no packaging, no unpacking:
 #
-#   1. Dev machine:  .\pack-for-deploy.ps1          -> llm-wiki-app.tgz
-#   2. Server:       ./update.sh llm-wiki-app.tgz   -> backup, unpack, restart
+#   1. Dev machine: upload/overwrite the source files into ./app (FTP, SCP,
+#      git pull — whatever you already use).
+#   2. Server:      docker compose up -d --force-recreate wiki
 #
 # Application code is NOT baked into the image. The ./app directory is bind
 # mounted over /app, so replacing files on the host and restarting the
@@ -11,6 +12,7 @@
 # the warmed pnpm store, and node_modules compiled for this image's ABI.
 #
 # Full rationale + troubleshooting: docs/16-docker-deployment.md
+# Step-by-step instructions:       DEPLOY.md
 
 services:
   wiki:

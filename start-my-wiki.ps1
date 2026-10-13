@@ -65,10 +65,15 @@ $candidates += @(
 
 $nodeExe = $null
 $nodeMajor = $null
+# Pick the NEWEST Node that is still <= 20, not merely the first acceptable one:
+# an NVM_HOME scan can surface a decade-old v14 next to the v20 this checkout
+# targets, and "first match" would then start the server on the ancient binary.
 foreach ($c in $candidates) {
     if (-not $c) { continue }
     $m = Get-NodeMajorVersion -Exe $c
-    if ($m -ne $null -and $m -le 20) { $nodeExe = $c; $nodeMajor = $m; break }
+    if ($m -ne $null -and $m -le 20 -and ($nodeMajor -eq $null -or $m -gt $nodeMajor)) {
+        $nodeExe = $c; $nodeMajor = $m
+    }
 }
 
 if (-not $nodeExe) {

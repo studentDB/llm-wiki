@@ -46,7 +46,7 @@ docs/15-publishing.md
 # --- server deploy root only (harmless in the dev repo) ----------------------
 # Persistent data: wiki content + global config. Mounted, never copied.
 data/
-# Rollback snapshots left behind by update.sh.
+# Rollback snapshots (`cp -a app app.bak.<TS>`) left in the deploy root.
 app.bak.*/
 # Release archives — never part of the image.
 *.tgz
