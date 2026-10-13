@@ -81,6 +81,7 @@ FTP 工具连上服务器之后，把下面这些拖过去：
 ```
 /srv/llm-wiki/
 ├── docker-compose.yml      容器配方（根目录，传一次基本不动）
+├── .env                     API 密钥（根目录，建一次；不在代码目录里）
 │
 ├── app/                    程序代码 ← 每次更新覆盖这里
 │   ├── Dockerfile
@@ -94,7 +95,8 @@ FTP 工具连上服务器之后，把下面这些拖过去：
 │
 └── data/                   数据，更新代码永远不动
     ├── wikis/              wiki 内容（重要资产）
-    └── config/             当前选中哪个 wiki、密钥兜底
+    └── config/             全局配置：实际就一个 config.json
+                            （当前选中哪个 wiki、最近打开列表、主题、密钥兜底）
 ```
 
 三句话：
@@ -116,9 +118,10 @@ docker compose version
 
 两条都要有输出。没有的话：`apt install docker.io docker-compose-plugin`（Ubuntu/Debian）。注意是 `docker compose`（空格），不是带横杠的旧命令。**服务器不需要装 Node、不需要装 pnpm。**
 
+**建密钥文件**（部署根，不在 `app/` 里）：
+
 ```bash
-mkdir -p /srv/llm-wiki/app/apps/web
-nano /srv/llm-wiki/app/apps/web/.env.local
+nano /srv/llm-wiki/.env
 ```
 
 内容（等号后面换成你自己的 key，没有的留空）：
@@ -131,7 +134,19 @@ OPENROUTER_API_KEY=
 
 保存退出（nano：`Ctrl+O` → 回车 → `Ctrl+X`）。
 
-> ⚠️ 这个文件**在服务器上用 nano 写**，别从 Windows 传——Windows 换行符会让密钥值带上肉眼看不见的 `\r`，调用大模型时鉴权会失败。
+> **为什么密钥要单独放 `/srv/llm-wiki/.env`，而不是跟着代码传？**
+>
+> | 理由 | 说明 |
+> |---|---|
+> | 代码会被覆盖 | `app/` 每次发版都整体替换，密钥不该待在会被替换的目录里 |
+> | 换密钥不用重发代码 | 改这一个文件 + `restart` 即可，不用再传一遍 `apps/` |
+> | 权限分离 | 能看代码目录的人（比如 CI、只读备份）不会顺手拿到密钥 |
+>
+> 容器启动时 compose 会把这个文件注入成环境变量，程序直接从 `process.env` 读，**不需要额外配置**。
+>
+> ⚠️ **别从 Windows 直接传这个文件** —— Windows 换行符会让密钥值带上肉眼看不见的 `\r`，调用大模型时报鉴权失败。已经传上去的话在服务器执行一次 `sed -i 's/\r$//' /srv/llm-wiki/.env` 即可。
+>
+> （另一个可行位置是 `app/apps/web/.env.local`，Next 会自动加载。但它落在代码目录里，会被覆盖，所以不推荐。）
 
 ### 3.2 第一次启动（建镜像，3~8 分钟）
 
@@ -228,6 +243,8 @@ docker compose restart wiki
 
 传完 `docker compose restart wiki`，页面上就能看到了。
 
+> 新建（未预置）的库在**首次访问/首次灌库**时会自动生成自己的 `.llm-wiki/settings.json`，内容继承 `app/apps/web/llm-wiki.config.json` 的 `defaults`（模型槽位、开关）。生成之后这个库的配置就**冻结**了——之后改部署默认值不再影响它，要改就进该库的设置页或直接编辑 `data/wikis/<产品>/.llm-wiki/settings.json`。
+
 ---
 
 ## 出问题看这里
@@ -241,5 +258,5 @@ docker compose restart wiki
 | 容器起来就退，报 `exec ... entrypoint.sh: no such file` 或 `env: 'bash\r'` | 镜像是旧的，重新构建一次 `docker compose up -d --build`（新 Dockerfile 会自动清掉 Windows 换行符） |
 | `docker-compose.yml` 报 YAML 解析错 | `sed -i 's/\r$//' docker-compose.yml` |
 | 报 `Address already in use` | 3737 被占。改 `docker-compose.yml` 里 `ports` 的**左边**：`"3737:3737"` → `"8080:3737"` |
-| 灌库/问答报鉴权失败 | 检查 `/srv/llm-wiki/app/apps/web/.env.local`；如果是从 Windows 传来的，删掉用 nano 重写 |
+| 灌库/问答报鉴权失败 | 检查 `/srv/llm-wiki/.env`；如果是从 Windows 传来的，执行 `sed -i 's/\r$//' /srv/llm-wiki/.env` 后 `docker compose restart wiki` |
 | 报 `COPY ... not found` | `app/` 缺文件。检查 `ls /srv/llm-wiki/app` 有没有 `apps/`、`packages/`、`pnpm-lock.yaml` |

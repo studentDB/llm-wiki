@@ -1,4 +1,5 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -355,4 +356,28 @@ export async function saveWikiSettings(wikiPath: string, settings: WikiSettings)
   await mkdir(dir, { recursive: true });
   const path = wikiSettingsPath(wikiPath);
   await writeFile(path, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+/**
+ * Loads a wiki's settings and, the first time, WRITES the effective defaults to
+ * disk.
+ *
+ * `loadWikiSettings` alone is memory-only: a wiki with no settings.json borrows
+ * the deployment defaults and keeps re-reading them on every call, so the file
+ * never appears and later edits to `llm-wiki.config.json` silently keep changing
+ * the wiki's behaviour. Persisting once gives the wiki an owned, inspectable
+ * config — the same thing `POST /api/wikis` does at creation time — while
+ * staying a no-op for every wiki that already has one.
+ *
+ * `created` lets callers log or report "this wiki just gained a config file".
+ */
+export async function ensureWikiSettings(
+  wikiPath: string,
+): Promise<{ settings: WikiSettings; created: boolean }> {
+  const settings = await loadWikiSettings(wikiPath);
+  if (existsSync(wikiSettingsPath(wikiPath))) {
+    return { settings, created: false };
+  }
+  await saveWikiSettings(wikiPath, settings);
+  return { settings, created: true };
 }

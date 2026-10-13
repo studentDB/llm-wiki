@@ -38,6 +38,20 @@ services:
     # Next resolves .next/ and llm-wiki.config.json relative to the app dir.
     working_dir: /app/apps/web
 
+    # API keys live here, in the DEPLOY ROOT - deliberately outside ./app.
+    #
+    # Why not inside the code directory:
+    #   * ./app is overwritten on every release; secrets should not live in the
+    #     path that gets replaced;
+    #   * rotating a key must never require re-uploading code;
+    #   * it keeps the "code" and "credentials" question separable - anyone
+    #     granted read access to the app tree doesn't silently get the keys.
+    # The app reads them straight off process.env (packages/llm/src/client.ts),
+    # so no extra plumbing is needed. Note this file MUST exist before the first
+    # `docker compose up` - compose fails fast otherwise, which is the point.
+    env_file:
+      - .env
+
     environment:
       # --- bind address -----------------------------------------------------
       # MUST be set. Docker injects HOSTNAME=<container id> automatically, and

@@ -8,6 +8,7 @@ import {
   addRecentWiki,
   DEFAULT_GLOBAL_CONFIG,
   DEFAULT_WIKI_SETTINGS,
+  ensureWikiSettings,
   globalConfigPath,
   loadGlobalConfig,
   loadWikiSettings,
@@ -254,5 +255,45 @@ describe("wiki settings", () => {
     });
     const content = await readFile(wikiSettingsPath(wikiPath), "utf8");
     expect(content).toContain('"topic": "X"');
+  });
+});
+
+describe("ensureWikiSettings", () => {
+  let wikiPath: string;
+
+  beforeEach(async () => {
+    wikiPath = await mkdtemp(join(tmpdir(), "llm-wiki-ensure-test-"));
+    await initWikiFolder(wikiPath);
+  });
+
+  afterEach(async () => {
+    await rm(wikiPath, { recursive: true, force: true });
+  });
+
+  it("materialises settings.json on first call and reports created=true", async () => {
+    const before = await stat(wikiSettingsPath(wikiPath)).catch(() => null);
+    expect(before).toBeNull(); // initWikiFolder does not write settings
+
+    const { settings, created } = await ensureWikiSettings(wikiPath);
+    expect(created).toBe(true);
+    expect(settings).toEqual({
+      ...DEFAULT_WIKI_SETTINGS,
+      defaultModels: { ...DEFAULT_WIKI_SETTINGS.defaultModels },
+    });
+
+    const onDisk = JSON.parse(await readFile(wikiSettingsPath(wikiPath), "utf8"));
+    expect(onDisk.defaultModels).toEqual(DEFAULT_WIKI_SETTINGS.defaultModels);
+  });
+
+  it("is a no-op afterwards and never overwrites user edits", async () => {
+    await saveWikiSettings(wikiPath, {
+      ...DEFAULT_WIKI_SETTINGS,
+      defaultModels: { ...DEFAULT_WIKI_SETTINGS.defaultModels },
+      topic: "Hand-edited topic",
+    });
+
+    const { settings, created } = await ensureWikiSettings(wikiPath);
+    expect(created).toBe(false);
+    expect(settings.topic).toBe("Hand-edited topic");
   });
 });

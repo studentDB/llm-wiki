@@ -37,6 +37,26 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $repoRoot = $PSScriptRoot
 $failed = @()
 
+# Runs a native command and returns ITS exit code, without letting PowerShell
+# abort the script. Under $ErrorActionPreference='Stop' (needed for real bugs
+# like Test-Path on a missing file), ANY stderr output from a native command is
+# converted into a terminating NativeCommandError — so `next build` merely
+# printing a warning kills the run and reports a build failure that never
+# happened. Every tool below writes to stderr on occasion; none of that is a
+# failure signal, only the exit code is.
+function Invoke-Native {
+    param(
+        [string] $Exe,
+        [string[]] $Args
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & $Exe @Args
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    return $code
+}
+
 Write-Host "== pre-publish check ==" -ForegroundColor Cyan
 
 # ---- pick a Node binary -----------------------------------------------------
@@ -88,6 +108,9 @@ Write-Host ("[node ] {0}  (v{1})" -f $nodeExe, $nodeMajor)
 if ($nodeMajor -ne $null -and $nodeMajor -gt 20) {
     Write-Host "[WARN ] better-sqlite3 targets Node 20; results below may be misleading." -ForegroundColor Yellow
 }
+Write-Host "[note ] each step prints when it starts and how long it took. If one seems" -ForegroundColor DarkGray
+Write-Host "[note ] frozen, this box's disk I/O is degrading again (a known, temporary" -ForegroundColor DarkGray
+Write-Host "[note ] condition) - press Ctrl+C and retry later. That is not a code fault." -ForegroundColor DarkGray
 
 # ---- 1. type-check ----------------------------------------------------------
 $tsc = Join-Path $repoRoot "node_modules\typescript\bin\tsc"
@@ -95,13 +118,15 @@ foreach ($pkg in @("packages\core", "packages\llm", "apps\web")) {
     $dir = Join-Path $repoRoot $pkg
     if (-not (Test-Path -LiteralPath $dir)) { continue }
     Push-Location $dir
-    & $nodeExe $tsc --noEmit
-    $ok = ($LASTEXITCODE -eq 0)
+    Write-Host ("[....] type-check  {0} ..." -f $pkg) -ForegroundColor DarkGray
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $ok = ((Invoke-Native -Exe $nodeExe -Args @($tsc, "--noEmit")) -eq 0)
+    $sw.Stop()
     Pop-Location
     if ($ok) {
-        Write-Host ("[ OK  ] type-check  {0}" -f $pkg) -ForegroundColor Green
+        Write-Host ("[ OK  ] type-check  {0}  ({1:n1}s)" -f $pkg, $sw.Elapsed.TotalSeconds) -ForegroundColor Green
     } else {
-        Write-Host ("[FAIL ] type-check  {0}" -f $pkg) -ForegroundColor Red
+        Write-Host ("[FAIL ] type-check  {0}  ({1:n1}s)" -f $pkg, $sw.Elapsed.TotalSeconds) -ForegroundColor Red
         $failed += "type-check:$pkg"
     }
 }
@@ -110,13 +135,14 @@ foreach ($pkg in @("packages\core", "packages\llm", "apps\web")) {
 $i18n = Join-Path $repoRoot "apps\web\scripts\check-i18n.mjs"
 if (Test-Path -LiteralPath $i18n) {
     Push-Location (Join-Path $repoRoot "apps\web")
-    & $nodeExe $i18n
-    $ok = ($LASTEXITCODE -eq 0)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $ok = ((Invoke-Native -Exe $nodeExe -Args @($i18n)) -eq 0)
+    $sw.Stop()
     Pop-Location
     if ($ok) {
-        Write-Host "[ OK  ] i18n keys" -ForegroundColor Green
+        Write-Host ("[ OK  ] i18n keys  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
     } else {
-        Write-Host "[FAIL ] i18n keys" -ForegroundColor Red
+        Write-Host ("[FAIL ] i18n keys  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Red
         $failed += "i18n"
     }
 }
@@ -125,13 +151,15 @@ if (Test-Path -LiteralPath $i18n) {
 if (-not $SkipTests) {
     $vitest = Join-Path $repoRoot "node_modules\vitest\vitest.mjs"
     Push-Location $repoRoot
-    & $nodeExe $vitest run --hookTimeout 120000
-    $ok = ($LASTEXITCODE -eq 0)
+    Write-Host "[....] unit tests (vitest, spawns workers) ..." -ForegroundColor DarkGray
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $ok = ((Invoke-Native -Exe $nodeExe -Args @($vitest, "run", "--hookTimeout", "120000")) -eq 0)
+    $sw.Stop()
     Pop-Location
     if ($ok) {
-        Write-Host "[ OK  ] unit tests" -ForegroundColor Green
+        Write-Host ("[ OK  ] unit tests  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
     } else {
-        Write-Host "[FAIL ] unit tests" -ForegroundColor Red
+        Write-Host ("[FAIL ] unit tests  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Red
         $failed += "tests"
     }
 } else {
@@ -144,15 +172,27 @@ if (-not $SkipTests) {
 # .next with native modules would be unusable).
 if ($Build) {
     Write-Host "[build] next build (local dry run; output is NOT uploaded)" -ForegroundColor Cyan
-    Push-Location (Join-Path $repoRoot "apps\web")
-    & $nodeExe (Join-Path $repoRoot "node_modules\pnpm\bin\pnpm.cjs") build
-    $ok = ($LASTEXITCODE -eq 0)
-    Pop-Location
-    if ($ok) {
-        Write-Host "[ OK  ] next build" -ForegroundColor Green
-    } else {
-        Write-Host "[FAIL ] next build" -ForegroundColor Red
+
+    # Drive Next directly instead of going through pnpm on purpose:
+    #   * `pnpm` here is a corepack shim that has to download/resolve @pnpm/exe
+    #     at call time - it can fail for reasons unrelated to the code;
+    #   * `pnpm --filter @llm-wiki/web build` only wraps this same binary.
+    # Invoking next's own bin skips a layer that can lie about the result.
+    $nextBin = Join-Path $repoRoot "apps\web\node_modules\next\dist\bin\next"
+    if (-not (Test-Path -LiteralPath $nextBin)) {
+        Write-Host "[FAIL ] next build - next binary not found at $nextBin" -ForegroundColor Red
+        Write-Host "        Run 'pnpm install' first." -ForegroundColor Yellow
         $failed += "build"
+    } else {
+        Push-Location (Join-Path $repoRoot "apps\web")
+        $ok = ((Invoke-Native -Exe $nodeExe -Args @($nextBin, "build")) -eq 0)
+        Pop-Location
+        if ($ok) {
+            Write-Host "[ OK  ] next build" -ForegroundColor Green
+        } else {
+            Write-Host "[FAIL ] next build" -ForegroundColor Red
+            $failed += "build"
+        }
     }
 }
 

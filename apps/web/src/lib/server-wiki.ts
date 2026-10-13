@@ -11,10 +11,10 @@ import { NextResponse } from "next/server";
 
 import {
   backfillUsageCosts,
+  ensureWikiSettings,
   getApiKey,
   globalConfigPath,
   initWikiFolder,
-  loadWikiSettings,
   openDb,
   purgeOldTrash,
   syncWikiToDb,
@@ -203,7 +203,14 @@ export async function openWikiContext(): Promise<WikiContext> {
     db.close();
     throw err;
   }
-  const settings = await loadWikiSettings(wikiPath);
+  // Materialise the wiki's own settings.json the first time it's opened, so a
+  // wiki created straight from a deployment (or one whose folder was created
+  // outside the app) owns an inspectable config instead of silently re-deriving
+  // defaults from llm-wiki.config.json on every request.
+  const { settings, created } = await ensureWikiSettings(wikiPath);
+  if (created) {
+    console.log(`[wiki] wrote default settings.json for ${wikiPath}`);
+  }
 
   // Best-effort 30-day trash cleanup. Throttled, errors ignored.
   if (Date.now() - lastPurgeMs > PURGE_INTERVAL_MS) {
@@ -245,9 +252,9 @@ export async function openWikiContext(): Promise<WikiContext> {
  * (the user needs to be able to reach Settings to configure things).
  */
 export async function requireSetup(slot?: keyof WikiSettings["defaultModels"]): Promise<void> {
-  const [apiKeyStatus, settings] = await Promise.all([
+  const [apiKeyStatus, { settings }] = await Promise.all([
     getApiKey(),
-    loadWikiSettings(resolveWikiPath()),
+    ensureWikiSettings(resolveWikiPath()),
   ]);
   const hasKey = !!apiKeyStatus.key;
 
